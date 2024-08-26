@@ -40,9 +40,9 @@ struct SignInWithAppleButton: UIViewRepresentable {
         
         func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
             if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
-               let nonce = currentNonce,
-               let appleIDToken = appleIDCredential.identityToken,
-               let idTokenString = String(data: appleIDToken, encoding: .utf8) {
+               let _ = currentNonce,
+               let _ = appleIDCredential.identityToken,
+               let _ = String(data: appleIDCredential.identityToken!, encoding: .utf8) {
                 
                 parent.userManager.signInWithApple { result in
                     switch result {

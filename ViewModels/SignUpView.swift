@@ -33,9 +33,9 @@ struct SignUpView: View {
                     .cornerRadius(10)
             }
             
-            SignInWithAppleButton(type: .signUp)
-                .frame(height: 50)
-                .onTapGesture(perform: signUpWithApple)
+//            SignInWithAppleButton(type: .signUp)
+//                .frame(height: 50)
+//                .onTapGesture(perform: signUpWithApple)
         }
         .padding()
         .alert(isPresented: $showingAlert) {
@@ -59,18 +59,18 @@ struct SignUpView: View {
         }
     }
     
-    private func signUpWithApple() {
-            let nonce = userManager.randomNonceString()
-            let appleIDProvider = ASAuthorizationAppleIDProvider()
-            let request = appleIDProvider.createRequest()
-            request.requestedScopes = [.fullName, .email]
-            request.nonce = userManager.sha256(nonce)
-
-            let authorizationController = ASAuthorizationController(authorizationRequests: [request])
-            authorizationController.delegate = userManager
-            authorizationController.presentationContextProvider = userManager
-            authorizationController.performRequests()
-
-            // The actual sign in will be handled in the UserManager's authorizationController delegate method
-        }
+//    private func signUpWithApple() {
+//        let nonce = userManager.randomNonceString()
+//        let appleIDProvider = ASAuthorizationAppleIDProvider()
+//        let request = appleIDProvider.createRequest()
+//        request.requestedScopes = [.fullName, .email]
+//        request.nonce = userManager.sha256(nonce)
+//
+//        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+//        authorizationController.delegate = userManager
+//        authorizationController.presentationContextProvider = userManager
+//        authorizationController.performRequests()
+//
+//        // The actual sign in will be handled in the UserManager's authorizationController delegate method
+//    }
 }

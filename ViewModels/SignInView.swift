@@ -28,8 +28,8 @@ struct SignInView: View {
                     .cornerRadius(10)
             }
             
-            SignInWithAppleButton(type: .signIn)
-                .frame(height: 50)
+//            SignInWithAppleButton(type: .signIn)
+//                .frame(height: 50)
             
             Button(action: { isShowingSignUp = true }) {
                 Text("Don't have an account? Sign Up here")
