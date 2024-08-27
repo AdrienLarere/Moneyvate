@@ -15,15 +15,17 @@ class GoalViewModel: ObservableObject {
     
     func addGoal(title: String, frequency: Goal.Frequency, amountPerSuccess: Double, startDate: Date, endDate: Date, requiredCompletions: Int, verificationMethod: Goal.VerificationMethod) {
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
-        let newGoal = Goal(title: title,
+        guard let userId = Auth.auth().currentUser?.uid else { return }
+        
+        let newGoal = Goal(id: nil,
+                           userId: userId,
+                           title: title,
                            frequency: frequency,
                            amountPerSuccess: amountPerSuccess,
                            startDate: startDate,
                            endDate: endDate,
                            totalAmount: totalAmount,
                            verificationMethod: verificationMethod)
-        
-        guard let userId = Auth.auth().currentUser?.uid else { return }
         
         do {
             try db.collection("users").document(userId).collection("goals").addDocument(from: newGoal)
@@ -32,15 +34,32 @@ class GoalViewModel: ObservableObject {
         }
     }
     
-    func toggleGoalCompletion(goal: Goal, date: Date) {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
-        let goalRef = db.collection("users").document(userId).collection("goals").document(goal.id)
+    func addCompletion(for goal: Goal, on date: Date) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        
+        let newCompletion = Completion(goalId: goalId,
+                                       date: date,
+                                       status: goal.verificationMethod == .selfVerify ? .verified : .pendingVerification)
         
         goalRef.updateData([
-            "completions.\(ISO8601DateFormatter().string(from: date))": !(goal.completionDates[date] ?? false)
+            "completions.\(ISO8601DateFormatter().string(from: date))": newCompletion
         ]) { error in
             if let error = error {
-                print("Error updating goal completion: \(error.localizedDescription)")
+                print("Error adding completion: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    func updateCompletionStatus(for goal: Goal, on date: Date, newStatus: Completion.CompletionStatus) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        
+        goalRef.updateData([
+            "completions.\(ISO8601DateFormatter().string(from: date)).status": newStatus.rawValue
+        ]) { error in
+            if let error = error {
+                print("Error updating completion status: \(error.localizedDescription)")
             }
         }
     }
@@ -48,17 +67,34 @@ class GoalViewModel: ObservableObject {
     func fetchGoals() {
         guard let userId = Auth.auth().currentUser?.uid else { return }
         
+        print("Fetching goals for user: \(userId)")
+        
         listenerRegistration = db.collection("users").document(userId).collection("goals")
         .addSnapshotListener { [weak self] querySnapshot, error in
-            guard let documents = querySnapshot?.documents else {
-                print("Error fetching documents: \(error?.localizedDescription ?? "Unknown error")")
+            if let error = error {
+                print("Error fetching documents: \(error.localizedDescription)")
                 return
             }
             
-            self?.goals = documents.compactMap { queryDocumentSnapshot -> Goal? in
-                try? queryDocumentSnapshot.data(as: Goal.self)
+            guard let documents = querySnapshot?.documents else {
+                print("No documents found")
+                return
             }
             
+            print("Found \(documents.count) documents")
+            
+            self?.goals = documents.compactMap { queryDocumentSnapshot -> Goal? in
+                do {
+                    let goal = try queryDocumentSnapshot.data(as: Goal.self)
+                    print("Successfully decoded goal: \(goal.title)")
+                    return goal
+                } catch {
+                    print("Error decoding goal (document ID: \(queryDocumentSnapshot.documentID)): \(error.localizedDescription)")
+                    return nil
+                }
+            }
+            
+            print("Decoded \(self?.goals.count ?? 0) goals")
             self?.updateBalance()
         }
     }
@@ -66,7 +102,7 @@ class GoalViewModel: ObservableObject {
     func clearGoals() {
         goals = []
         balance = 0
-        // Any other cleanup needed
+        listenerRegistration?.remove()
     }
     
     private func updateBalance() {

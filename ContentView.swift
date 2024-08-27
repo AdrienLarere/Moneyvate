@@ -87,9 +87,13 @@ struct GoalRowView: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Text("\(goal.completions.values.filter { $0 }.count)/\(goal.requiredCompletions)")
+            Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
+    }
+    
+    private var completedCompletionsCount: Int {
+        goal.completions.values.filter { $0.status == .verified }.count
     }
 }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct GoalDetailView: View {
     @EnvironmentObject var viewModel: GoalViewModel
+    @State private var showingCompletionModal = false
+    @State private var selectedDate: Date?
     let goal: Goal
     
     var body: some View {
@@ -19,15 +21,14 @@ struct GoalDetailView: View {
                     HStack {
                         Text(formatDate(date))
                         Spacer()
-                        if isToday(date) {
-                            Image(systemName: goal.completionDates[date] ?? false ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(goal.completionDates[date] ?? false ? .green : .gray)
-                                .onTapGesture {
-                                    viewModel.toggleGoalCompletion(goal: goal, date: date)
-                                }
-                        } else if isPast(date) {
-                            Image(systemName: goal.completionDates[date] ?? false ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(goal.completionDates[date] ?? false ? .green : .gray)
+                        if let completion = goal.completionDates[date] {
+                            completionStatusView(for: completion)
+                        } else if isToday(date) || isPast(date) {
+                            Button("Complete") {
+                                selectedDate = date
+                                showingCompletionModal = true
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
                         } else {
                             Text("Upcoming")
                                 .font(.caption)
@@ -38,6 +39,28 @@ struct GoalDetailView: View {
             }
         }
         .navigationTitle(goal.title)
+            .sheet(isPresented: $showingCompletionModal) {
+            if let date = selectedDate {
+                CompletionModalView(viewModel: viewModel, goal: goal, date: date)
+            }
+        }
+    }
+    
+    private func completionStatusView(for completion: Completion) -> some View {
+        switch completion.status {
+        case .pendingVerification:
+            return Image(systemName: "clock.fill")
+                .foregroundColor(.orange)
+        case .verified:
+            return Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+        case .refunded:
+            return Image(systemName: "dollarsign.circle.fill")
+                .foregroundColor(.blue)
+        case .rejected:
+            return Image(systemName: "xmark.circle.fill")
+                .foregroundColor(.red)
+        }
     }
     
     private func getDateRange() -> [Date] {
