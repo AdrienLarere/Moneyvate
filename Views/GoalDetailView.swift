@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct GoalDetailView: View {
-    @EnvironmentObject var viewModel: GoalViewModel
+    @ObservedObject var viewModel: GoalViewModel
     @State private var showingCompletionModal = false
     @State private var selectedDate: Date?
-    let goal: Goal
-    
+    @Binding var goal: Goal
+
     var body: some View {
         List {
             Section(header: Text("Goal Details")) {
@@ -39,9 +39,9 @@ struct GoalDetailView: View {
             }
         }
         .navigationTitle(goal.title)
-            .sheet(isPresented: $showingCompletionModal) {
+        .sheet(isPresented: $showingCompletionModal) {
             if let date = selectedDate {
-                CompletionModalView(viewModel: viewModel, goal: goal, date: date)
+                CompletionModalView(viewModel: viewModel, goal: $goal, date: date)
             }
         }
     }

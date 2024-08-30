@@ -5,10 +5,10 @@ import FirebaseAuth
 class GoalViewModel: ObservableObject {
     @Published var goals: [Goal] = []
     @Published var balance: Double = 0
-    
+
     private var db = Firestore.firestore()
     private var listenerRegistration: ListenerRegistration?
-    
+
     init() {
         fetchGoals()
     }
@@ -34,19 +34,35 @@ class GoalViewModel: ObservableObject {
         }
     }
     
-    func addCompletion(for goal: Goal, on date: Date) {
+    func addCompletion(for goal: Goal, on date: Date, verificationPhotoUrl: String? = nil) {
         guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
         let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
-        
-        let newCompletion = Completion(goalId: goalId,
-                                       date: date,
-                                       status: goal.verificationMethod == .selfVerify ? .verified : .pendingVerification)
-        
+
+        let newCompletion = Completion(
+            goalId: goalId,
+            date: date,
+            status: goal.verificationMethod == .selfVerify ? .verified : .pendingVerification,
+            verificationPhotoUrl: verificationPhotoUrl,
+            verifiedAt: goal.verificationMethod == .selfVerify ? date : nil
+        )
+
+        let completionData: [String: Any] = [
+            "goalId": newCompletion.goalId,
+            "date": Timestamp(date: newCompletion.date),
+            "status": newCompletion.status.rawValue,
+            "verificationPhotoUrl": newCompletion.verificationPhotoUrl as Any,
+            "verifiedAt": newCompletion.verifiedAt.map { Timestamp(date: $0) } as Any,
+            "refundedAt": newCompletion.refundedAt.map { Timestamp(date: $0) } as Any
+        ]
+
         goalRef.updateData([
-            "completions.\(ISO8601DateFormatter().string(from: date))": newCompletion
-        ]) { error in
+            "completions.\(ISO8601DateFormatter().string(from: date))": completionData
+        ]) { [weak self] error in
             if let error = error {
                 print("Error adding completion: \(error.localizedDescription)")
+            } else {
+                print("Completion added successfully")
+                self?.fetchGoals()  // Refresh goals to reflect the new completion
             }
         }
     }
@@ -96,6 +112,14 @@ class GoalViewModel: ObservableObject {
             
             print("Decoded \(self?.goals.count ?? 0) goals")
             self?.updateBalance()
+        }
+    }
+    
+    func updateGoal(_ updatedGoal: Goal) {
+        if let index = goals.firstIndex(where: { $0.id == updatedGoal.id }) {
+            goals[index] = updatedGoal
+            updateBalance()
+            objectWillChange.send()  // Explicitly notify observers of the change
         }
     }
     

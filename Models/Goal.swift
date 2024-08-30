@@ -3,7 +3,7 @@ import FirebaseFirestore
 
 struct Goal: Identifiable, Codable {
     @DocumentID var id: String?
-    var userId: String?  // Changed to optional
+    var userId: String?
     var title: String
     var frequency: Frequency
     var amountPerSuccess: Double

@@ -47,8 +47,8 @@ struct ContentView: View {
         NavigationView {
             List {
                 Section(header: Text("Current Balance: £\(viewModel.balance, specifier: "%.2f")")) {
-                    ForEach(viewModel.goals) { goal in
-                        NavigationLink(destination: GoalDetailView(goal: goal)) {
+                    ForEach($viewModel.goals) { $goal in
+                        NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: $goal)) {
                             GoalRowView(goal: goal)
                         }
                     }
