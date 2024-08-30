@@ -46,11 +46,25 @@ struct ContentView: View {
     private var mainView: some View {
         NavigationView {
             List {
-                Section(header: Text("Current Balance: £\(viewModel.balance, specifier: "%.2f")")) {
-                    ForEach($viewModel.goals) { $goal in
-                        NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: $goal)) {
-                            GoalRowView(goal: goal)
-                        }
+                Section(header: Text("Balance: £\(viewModel.balance, specifier: "%.2f")")) {}
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                
+                if !currentGoals.isEmpty {
+                    Section(header: Text("Current Goals")) {
+                        goalList(goals: currentGoals)
+                    }
+                }
+                
+                if !futureGoals.isEmpty {
+                    Section(header: Text("Future Goals")) {
+                        goalList(goals: futureGoals)
+                    }
+                }
+                
+                if !pastGoals.isEmpty {
+                    Section(header: Text("Past Goals")) {
+                        goalList(goals: pastGoals)
                     }
                 }
             }
@@ -71,6 +85,35 @@ struct ContentView: View {
                 AddGoalView(isPresented: $showingAddGoal)
             }
         }
+    }
+    
+    private func goalList(goals: [Goal]) -> some View {
+        ForEach(goals) { goal in
+            NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: Binding.constant(goal))) {
+                GoalRowView(goal: goal)
+            }
+        }
+    }
+    
+    private var currentGoals: [Goal] {
+        let now = Date()
+        return viewModel.goals
+            .filter { $0.startDate <= now && $0.endDate >= now }
+            .sorted { $0.startDate < $1.startDate }
+    }
+    
+    private var futureGoals: [Goal] {
+        let now = Date()
+        return viewModel.goals
+            .filter { $0.startDate > now }
+            .sorted { $0.startDate < $1.startDate }
+    }
+    
+    private var pastGoals: [Goal] {
+        let now = Date()
+        return viewModel.goals
+            .filter { $0.endDate < now }
+            .sorted { $0.startDate < $1.startDate }
     }
 }
 
