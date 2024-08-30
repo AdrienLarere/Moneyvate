@@ -15,6 +15,7 @@ struct Completion: Identifiable, Codable {
         case verified
         case refunded
         case rejected
+        case missed
     }
     
     enum CodingKeys: String, CodingKey {

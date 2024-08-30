@@ -105,10 +105,22 @@ class GoalViewModel: ObservableObject {
             self?.goals = documents.compactMap { queryDocumentSnapshot -> Goal? in
                 do {
                     let goal = try queryDocumentSnapshot.data(as: Goal.self)
+                    
+                    // Check for missed completions
+                    let calendar = Calendar.current
+                    let today = calendar.startOfDay(for: Date())
+                    
+                    for date in self?.dateRange(from: goal.startDate, to: min(today, goal.endDate)) ?? [] {
+                        let dateString = ISO8601DateFormatter().string(from: date)
+                        if goal.completions[dateString] == nil {
+                            self?.updateMissedCompletion(for: goal, on: date)
+                        }
+                    }
+                    
                     print("Successfully decoded goal: \(goal.title)")
                     return goal
                 } catch {
-                    print("Error decoding goal (document ID: \(queryDocumentSnapshot.documentID)): \(error.localizedDescription)")
+                    print("Error decoding goal: \(error.localizedDescription)")
                     return nil
                 }
             }
@@ -116,6 +128,44 @@ class GoalViewModel: ObservableObject {
             print("Decoded \(self?.goals.count ?? 0) goals")
             self?.updateBalance()
         }
+    }
+    
+    private func updateMissedCompletion(for goal: Goal, on date: Date) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        
+        let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
+        let dateString = ISO8601DateFormatter().string(from: date)
+        
+        let completionData: [String: Any] = [
+            "goalId": missedCompletion.goalId,
+            "date": Timestamp(date: missedCompletion.date),
+            "status": missedCompletion.status.rawValue
+        ]
+        
+        goalRef.updateData([
+            "completions.\(dateString)": completionData
+        ]) { error in
+            if let error = error {
+                print("Error updating missed completion: \(error.localizedDescription)")
+            } else {
+                print("Successfully updated missed completion for date: \(dateString)")
+            }
+        }
+    }
+    
+    // Custom function to generate date range
+    private func dateRange(from: Date, to: Date) -> [Date] {
+       var dates: [Date] = []
+       var date = from
+
+       while date <= to {
+           dates.append(date)
+           guard let newDate = Calendar.current.date(byAdding: .day, value: 1, to: date) else { break }
+           date = newDate
+       }
+
+       return dates
     }
     
     func updateGoal(_ updatedGoal: Goal) {

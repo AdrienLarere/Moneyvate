@@ -24,12 +24,16 @@ struct GoalDetailView: View {
                         Spacer()
                         if let completion = goal.completionDates[date] {
                             completionStatusView(for: completion)
-                        } else if isToday(date) || isPast(date) {
+                        } else if isToday(date) {
                             Button("Complete") {
                                 selectedDate = date
                                 showingCompletionModal = true
                             }
                             .buttonStyle(BorderlessButtonStyle())
+                        } else if isPast(date) {
+                            Text("Missed")
+                                .italic()
+                                .foregroundColor(.orange)
                         } else {
                             Text("Upcoming")
                                 .font(.caption)
@@ -56,15 +60,19 @@ struct GoalDetailView: View {
         case .verified:
             return Text("Verified")
                 .italic()
-                .foregroundColor(.green)
+                .foregroundColor(Color.green)
         case .refunded:
             return Text("Refunded")
                 .italic()
-                .foregroundColor(.green)
+                .foregroundColor(Color.green)
         case .rejected:
             return Text("Rejected")
                 .italic()
                 .foregroundColor(Color.red.opacity(0.6))
+        case .missed:
+            return Text("Missed")
+                .italic()
+                .foregroundColor(.black)  // Changed from orange to black
         }
     }
     
