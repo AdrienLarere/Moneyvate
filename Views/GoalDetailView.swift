@@ -50,17 +50,21 @@ struct GoalDetailView: View {
     private func completionStatusView(for completion: Completion) -> some View {
         switch completion.status {
         case .pendingVerification:
-            return Image(systemName: "clock.fill")
-                .foregroundColor(.orange)
+            return Text("Pending")
+                .italic()
+                .foregroundColor(.gray)
         case .verified:
-            return Image(systemName: "checkmark.circle.fill")
+            return Text("Verified")
+                .italic()
                 .foregroundColor(.green)
         case .refunded:
-            return Image(systemName: "dollarsign.circle.fill")
-                .foregroundColor(.blue)
+            return Text("Refunded")
+                .italic()
+                .foregroundColor(.green)
         case .rejected:
-            return Image(systemName: "xmark.circle.fill")
-                .foregroundColor(.red)
+            return Text("Rejected")
+                .italic()
+                .foregroundColor(Color.red.opacity(0.6))
         }
     }
     
@@ -91,3 +95,4 @@ struct GoalDetailView: View {
         }
     }
 }
+

@@ -11,33 +11,37 @@ struct CompletionModalView: View {
     @State private var isShowingImagePicker = false
     @State private var isUploading = false
     @State private var errorMessage: String?
-    @State private var refreshToggle = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Debug: Modal Content")
-                .font(.headline)
-                .foregroundColor(.red)
+        VStack(spacing: 10) {
+            Spacer().frame(height: 40)  // This will lower the header slightly
             
-            Text("Goal: \(goal.title)")
-            Text("Date: \(formatDate(date))")
-            Text("Verification Method: \(goal.verificationMethod == .selfVerify ? "Self Verify" : "Photo")")
-
-            Text("Complete Goal")
-                .font(.headline)
-
+            Text(goal.title)
+                .font(.largeTitle)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.center)  // This will center the text
+            
+            Text(formatDate(date))
+                .font(.subheadline)
+                .italic()
+                .foregroundColor(.secondary)
+            
+            Spacer().frame(height: 175) 
+            
             if goal.verificationMethod == .selfVerify {
-                Text("I confirm that I have successfully completed my task today")
-                    .multilineTextAlignment(.center)
-
+                Text("I have completed this goal")
+                    .font(.body)  // Changed from .headline to remove bold
+                    .padding(.bottom, 5)
+                
                 Button("Confirm") {
                     addCompletion()
                 }
                 .padding()
-                .background(Color.blue)
+                .background(Color.green)
                 .foregroundColor(.white)
                 .cornerRadius(10)
             } else {
+                // Photo verification UI remains the same
                 if let image = image {
                     Image(uiImage: image)
                         .resizable()
@@ -73,14 +77,12 @@ struct CompletionModalView: View {
                 Text(errorMessage)
                     .foregroundColor(.red)
             }
+            
+            Spacer()
         }
         .padding()
         .sheet(isPresented: $isShowingImagePicker) {
             ImagePicker(image: $image)
-        }
-        .onAppear {
-            // Force a refresh when the view appears
-            refreshToggle.toggle()
         }
     }
 
@@ -92,7 +94,6 @@ struct CompletionModalView: View {
 
     private func addCompletion(photoURL: String? = nil) {
         viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
-        // Update the local goal binding
         if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
             goal = updatedGoal
         }
