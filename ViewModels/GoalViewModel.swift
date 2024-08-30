@@ -62,7 +62,10 @@ class GoalViewModel: ObservableObject {
                 print("Error adding completion: \(error.localizedDescription)")
             } else {
                 print("Completion added successfully")
-                self?.fetchGoals()  // Refresh goals to reflect the new completion
+                // Update the local goal object
+                var updatedGoal = goal
+                updatedGoal.completions[ISO8601DateFormatter().string(from: date)] = newCompletion
+                self?.updateGoal(updatedGoal)
             }
         }
     }

@@ -92,8 +92,8 @@ struct CompletionModalView: View {
 
     private func addCompletion(photoURL: String? = nil) {
         viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
+        // Update the local goal binding
         if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
-            viewModel.updateGoal(updatedGoal)
             goal = updatedGoal
         }
         presentationMode.wrappedValue.dismiss()

@@ -15,6 +15,7 @@ struct GoalDetailView: View {
                 Text("Total Amount: £\(goal.totalAmount, specifier: "%.2f")")
                 Text("Earned Amount: £\(goal.earnedAmount, specifier: "%.2f")")
             }
+            .onAppear(perform: refreshGoal)
             
             Section(header: Text("Progress")) {
                 ForEach(getDateRange(), id: \.self) { date in
@@ -82,5 +83,11 @@ struct GoalDetailView: View {
     
     private func isPast(_ date: Date) -> Bool {
         date < Calendar.current.startOfDay(for: Date())
+    }
+    
+    private func refreshGoal() {
+        if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
+            goal = updatedGoal
+        }
     }
 }
