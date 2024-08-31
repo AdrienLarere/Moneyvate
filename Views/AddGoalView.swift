@@ -14,6 +14,9 @@ struct AddGoalView: View {
     
     // Assuming USD for this example. In a real app, you'd get this from user settings or localization.
     private let currency = "$"
+    private var today: Date {
+        Calendar.current.startOfDay(for: Date())
+    }
     
     var body: some View {
         NavigationView {
@@ -33,8 +36,8 @@ struct AddGoalView: View {
                 }
                 
                 Section(header: Text("Date Range")) {
-                    DatePicker("Start Date", selection: $startDate, displayedComponents: .date)
-                    DatePicker("End Date", selection: $endDate, displayedComponents: .date)
+                    DatePicker("Start Date", selection: $startDate, in: today..., displayedComponents: .date)
+                    DatePicker("End Date", selection: $endDate, in: startDate..., displayedComponents: .date)
                 }
                 
                 if frequency == .xDays {
@@ -67,6 +70,12 @@ struct AddGoalView: View {
                 }
             }
             .navigationTitle("Add New Goal")
+        }
+        .onAppear {
+            // Ensure startDate is set to today if it's in the past
+            if startDate < today {
+                startDate = today
+            }
         }
     }
     
