@@ -46,9 +46,10 @@ struct ContentView: View {
     private var mainView: some View {
         NavigationView {
             List {
-                Section(header: Text("Balance: £\(viewModel.balance, specifier: "%.2f")")) {}
-                    .font(.subheadline)
+                Text("Balance: £\(viewModel.balance, specifier: "%.2f")")
                     .foregroundColor(.primary)
+                    .listRowInsets(EdgeInsets(top: 25, leading: 0, bottom: 0, trailing: 0))
+                    .listRowBackground(Color.clear)
                 
                 if !currentGoals.isEmpty {
                     Section(header: Text("Current Goals")) {
@@ -119,6 +120,7 @@ struct ContentView: View {
 
 struct GoalRowView: View {
     let goal: Goal
+    @State private var isPulsating = false
     
     var body: some View {
         HStack {
@@ -130,13 +132,27 @@ struct GoalRowView: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            VStack(alignment: .trailing) {
+                if hasCompletionDueToday {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 10, height: 10)
+                }
+                Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
     
     private var completedCompletionsCount: Int {
         goal.completions.values.filter { $0.status == .verified }.count
+    }
+    
+    private var hasCompletionDueToday: Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        return goal.startDate <= today && goal.endDate >= today && !goal.completions.values.contains { completion in
+            Calendar.current.isDate(completion.date, inSameDayAs: today) && completion.status == .verified
+        }
     }
 }
