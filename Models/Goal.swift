@@ -68,6 +68,18 @@ struct Goal: Identifiable, Codable {
             completions = Dictionary(uniqueKeysWithValues: newValue.map { (dateFormatter.string(from: $0.key), $0.value) })
         }
     }
+    
+    var completedCompletionsCount: Int {
+        completions.values.filter { $0.status == .verified }.count
+    }
+    
+    func hasCompletionForToday() -> Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        return completions.values.contains { completion in
+            Calendar.current.isDate(completion.date, inSameDayAs: today) &&
+            (completion.status == .verified || completion.status == .pendingVerification)
+        }
+    }
 }
 
 extension Goal {

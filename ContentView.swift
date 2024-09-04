@@ -90,7 +90,7 @@ struct ContentView: View {
     
     private func goalList(goals: [Goal]) -> some View {
         ForEach(goals) { goal in
-            NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: Binding.constant(goal))) {
+            NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: goal)) {
                 GoalRowView(goal: goal)
             }
         }
@@ -98,18 +98,23 @@ struct ContentView: View {
     
     private var currentGoals: [Goal] {
         let now = Date()
-        return viewModel.goals
-            .filter { $0.startDate <= now && $0.endDate >= now }
+        let today = Calendar.current.startOfDay(for: now)
+        let currentGoals = viewModel.goals
+            .filter { goal in
+                let isCurrentGoal = goal.startDate <= now && goal.endDate >= today
+                return isCurrentGoal
+            }
             .sorted { $0.startDate < $1.startDate }
+        return currentGoals
     }
-    
+
     private var futureGoals: [Goal] {
         let now = Date()
         return viewModel.goals
             .filter { $0.startDate > now }
             .sorted { $0.startDate < $1.startDate }
     }
-    
+
     private var pastGoals: [Goal] {
         let now = Date()
         return viewModel.goals
@@ -120,7 +125,8 @@ struct ContentView: View {
 
 struct GoalRowView: View {
     let goal: Goal
-    @State private var isPulsating = false
+    @State private var gradientStart = UnitPoint(x: 0, y: 0)
+    @State private var gradientEnd = UnitPoint(x: 1, y: 1)
     
     var body: some View {
         HStack {
@@ -133,10 +139,18 @@ struct GoalRowView: View {
             }
             Spacer()
             VStack(alignment: .trailing) {
-                if hasCompletionDueToday {
+                if shouldShowNotificationDot {
                     Circle()
-                        .fill(Color.blue)
+                        .fill(
+                            LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.7), Color.blue]), startPoint: gradientStart, endPoint: gradientEnd)
+                        )
                         .frame(width: 10, height: 10)
+                        .onAppear {
+                            withAnimation(Animation.linear(duration: 2).repeatForever(autoreverses: false)) {
+                                self.gradientStart = UnitPoint(x: 1, y: 1)
+                                self.gradientEnd = UnitPoint(x: 0, y: 0)
+                            }
+                        }
                 }
                 Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
                     .font(.caption)
@@ -145,14 +159,44 @@ struct GoalRowView: View {
         }
     }
     
+    private var shouldShowNotificationDot: Bool {
+        let now = Date()
+        let today = Calendar.current.startOfDay(for: now)
+        let isActiveGoal = goal.startDate <= now && goal.endDate >= today
+
+        if !isActiveGoal {
+            return false
+        }
+        let hasCompletionToday = goal.hasCompletionForToday()
+        let shouldShow: Bool
+        switch goal.frequency {
+        case .daily:
+            shouldShow = !hasCompletionToday
+        case .xDays:
+            let completedCount = goal.completions.values.filter { $0.status == .verified }.count
+            shouldShow = completedCount < goal.requiredCompletions && !hasCompletionToday
+        case .weekdays:
+            let isWeekday = !Calendar.current.isDateInWeekend(today)
+            shouldShow = isWeekday && !hasCompletionToday
+        case .weekends:
+            let isWeekend = Calendar.current.isDateInWeekend(today)
+            shouldShow = isWeekend && !hasCompletionToday
+        }
+        return shouldShow
+    }
+    
     private var completedCompletionsCount: Int {
         goal.completions.values.filter { $0.status == .verified }.count
     }
-    
-    private var hasCompletionDueToday: Bool {
-        let today = Calendar.current.startOfDay(for: Date())
-        return goal.startDate <= today && goal.endDate >= today && !goal.completions.values.contains { completion in
-            Calendar.current.isDate(completion.date, inSameDayAs: today) && completion.status == .verified
-        }
+}
+
+extension Calendar {
+    func isDateInWeekday(_ date: Date) -> Bool {
+        !isDateInWeekend(date)
+    }
+
+    func isDateInWeekend(_ date: Date) -> Bool {
+        let weekday = self.component(.weekday, from: date)
+        return weekday == 1 || weekday == 7
     }
 }

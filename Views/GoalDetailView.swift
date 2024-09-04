@@ -4,7 +4,12 @@ struct GoalDetailView: View {
     @ObservedObject var viewModel: GoalViewModel
     @State private var showingCompletionModal = false
     @State private var selectedDate: Date?
-    @Binding var goal: Goal
+    @State private var goal: Goal
+
+    init(viewModel: GoalViewModel, goal: Goal) {
+        self._viewModel = ObservedObject(wrappedValue: viewModel)
+        self._goal = State(initialValue: goal)
+    }
 
     var body: some View {
         List {
@@ -15,64 +20,94 @@ struct GoalDetailView: View {
                 Text("Total Amount: £\(goal.totalAmount, specifier: "%.2f")")
                 Text("Earned Amount: £\(goal.earnedAmount, specifier: "%.2f")")
             }
-            .onAppear(perform: refreshGoal)
             
             Section(header: Text("Progress")) {
                 ForEach(getDateRange(), id: \.self) { date in
                     HStack {
                         Text(formatDate(date))
                         Spacer()
-                        if let completion = goal.completionDates[date] {
-                            completionStatusView(for: completion)
-                        } else if isToday(date) {
-                            Button("Complete") {
-                                selectedDate = date
-                                showingCompletionModal = true
-                            }
-                            .buttonStyle(BorderlessButtonStyle())
-                        } else if isPast(date) {
-                            Text("Missed")
-                                .italic()
-                                .foregroundColor(.orange)
-                        } else {
-                            Text("Upcoming")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
+                        completionStatusView(for: date)
                     }
                 }
             }
         }
         .navigationTitle(goal.title)
+        .onAppear(perform: refreshGoal)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            refreshGoal()
+        }
         .sheet(isPresented: $showingCompletionModal) {
             if let date = selectedDate {
-                CompletionModalView(viewModel: viewModel, goal: $goal, date: date)
+                CompletionModalView(viewModel: viewModel, goal: $goal, date: date) {
+                    refreshGoal()
+                }
+            }
+        }
+        .onChange(of: showingCompletionModal) { oldValue, newValue in
+            if !newValue {
+                print("CompletionModal dismissed, refreshing goal")
+                refreshGoal()
             }
         }
     }
     
-    private func completionStatusView(for completion: Completion) -> some View {
+    private func completionStatusView(for date: Date) -> some View {
+        let dateString = ISO8601DateFormatter().string(from: date)
+        print("Checking completion status for date: \(dateString)")
+        
+        if let completion = goal.completions[dateString] {
+            print("Completion found for date: \(dateString), status: \(completion.status)")
+            return AnyView(completionStatusText(for: completion))
+        } else if canCompleteForDate(date) {
+            print("Can complete for date: \(dateString)")
+            return AnyView(Button("Complete") {
+                selectedDate = date
+                showingCompletionModal = true
+            }
+            .buttonStyle(BorderlessButtonStyle()))
+        } else if isPast(date) {
+            print("Date is in the past: \(dateString)")
+            return AnyView(Text("Missed")
+                .italic()
+                .foregroundColor(.orange))
+        } else {
+            print("Date is upcoming: \(dateString)")
+            return AnyView(Text("Upcoming")
+                .font(.caption)
+                .foregroundColor(.gray))
+        }
+    }
+
+    private func completionStatusText(for completion: Completion) -> some View {
         switch completion.status {
         case .pendingVerification:
-            return Text("Pending")
-                .italic()
-                .foregroundColor(.gray)
+            return Text("Pending").italic().foregroundColor(.gray)
         case .verified:
-            return Text("Verified")
-                .italic()
-                .foregroundColor(Color.green)
+            return Text("Verified").italic().foregroundColor(.green)
         case .refunded:
-            return Text("Refunded")
-                .italic()
-                .foregroundColor(Color.green)
+            return Text("Refunded").italic().foregroundColor(.green)
         case .rejected:
-            return Text("Rejected")
-                .italic()
-                .foregroundColor(Color.red.opacity(0.6))
+            return Text("Rejected").italic().foregroundColor(.red.opacity(0.6))
         case .missed:
-            return Text("Missed")
-                .italic()
-                .foregroundColor(.black)  // Changed from orange to black
+            return Text("Missed").italic().foregroundColor(.orange)
+        }
+    }
+    
+    private func canCompleteForDate(_ date: Date) -> Bool {
+        let today = Calendar.current.startOfDay(for: Date())
+        let isToday = Calendar.current.isDate(date, inSameDayAs: today)
+        let hasNoCompletion = goal.completionDates[date] == nil
+
+        switch goal.frequency {
+        case .daily:
+            return isToday && hasNoCompletion
+        case .weekdays:
+            return isToday && !Calendar.current.isDateInWeekend(date) && hasNoCompletion
+        case .weekends:
+            return isToday && Calendar.current.isDateInWeekend(date) && hasNoCompletion
+        case .xDays:
+            let completedCount = goal.completions.values.filter { $0.status == .verified }.count
+            return isToday && completedCount < goal.requiredCompletions && hasNoCompletion
         }
     }
     
@@ -98,9 +133,10 @@ struct GoalDetailView: View {
     }
     
     private func refreshGoal() {
-        if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
-            goal = updatedGoal
+        if let goalId = goal.id, let updatedGoal = viewModel.getGoal(withId: goalId) {
+            self.goal = updatedGoal
+            // Update the goal in the viewModel
+            viewModel.updateGoal(updatedGoal)
         }
     }
 }
-

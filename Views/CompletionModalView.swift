@@ -11,6 +11,7 @@ struct CompletionModalView: View {
     @State private var isShowingImagePicker = false
     @State private var isUploading = false
     @State private var errorMessage: String?
+    var onCompletion: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
@@ -26,7 +27,7 @@ struct CompletionModalView: View {
                 .italic()
                 .foregroundColor(.secondary)
             
-            Spacer().frame(height: 175) 
+            Spacer().frame(height: 175)
             
             if goal.verificationMethod == .selfVerify {
                 Text("I have completed this goal")
@@ -35,6 +36,7 @@ struct CompletionModalView: View {
                 
                 Button("Confirm") {
                     addCompletion()
+                    print("Completion added, updated goal: \(goal)")
                 }
                 .padding()
                 .background(Color.green)
@@ -94,10 +96,16 @@ struct CompletionModalView: View {
 
     private func addCompletion(photoURL: String? = nil) {
         viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
-        if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
-            goal = updatedGoal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { // Give some time for the update to propagate
+            if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
+                goal = updatedGoal
+                print("Goal updated in CompletionModalView: \(goal)")
+                onCompletion()  // Call the completion handler
+            } else {
+                print("Failed to find updated goal in CompletionModalView")
+            }
+            presentationMode.wrappedValue.dismiss()
         }
-        presentationMode.wrappedValue.dismiss()
     }
 
     private func uploadPhotoAndAddCompletion() {
