@@ -125,8 +125,6 @@ struct ContentView: View {
 
 struct GoalRowView: View {
     let goal: Goal
-    @State private var gradientStart = UnitPoint(x: 0, y: 0)
-    @State private var gradientEnd = UnitPoint(x: 1, y: 1)
     
     var body: some View {
         HStack {
@@ -141,16 +139,8 @@ struct GoalRowView: View {
             VStack(alignment: .trailing) {
                 if shouldShowNotificationDot {
                     Circle()
-                        .fill(
-                            LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.7), Color.blue]), startPoint: gradientStart, endPoint: gradientEnd)
-                        )
+                        .fill(Color.blue)
                         .frame(width: 10, height: 10)
-                        .onAppear {
-                            withAnimation(Animation.linear(duration: 2).repeatForever(autoreverses: false)) {
-                                self.gradientStart = UnitPoint(x: 1, y: 1)
-                                self.gradientEnd = UnitPoint(x: 0, y: 0)
-                            }
-                        }
                 }
                 Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
                     .font(.caption)
