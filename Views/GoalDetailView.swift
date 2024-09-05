@@ -115,7 +115,17 @@ struct GoalDetailView: View {
         guard let days = Calendar.current.dateComponents([.day], from: goal.startDate, to: goal.endDate).day else {
             return []
         }
-        return (0...days).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: goal.startDate) }
+        
+        let allDates = (0...days).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: goal.startDate) }
+        
+        switch goal.frequency {
+        case .daily, .xDays:
+            return allDates
+        case .weekdays:
+            return allDates.filter { !Calendar.current.isDateInWeekend($0) }
+        case .weekends:
+            return allDates.filter { Calendar.current.isDateInWeekend($0) }
+        }
     }
     
     private func formatDate(_ date: Date) -> String {

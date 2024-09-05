@@ -137,16 +137,21 @@ class GoalViewModel: ObservableObject {
     private func checkAndUpdateMissedCompletions() {
         guard let userId = Auth.auth().currentUser?.uid else { return }
         
-        let batch = db.batch()
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        var updatedGoals = [String]()
+        
+        let group = DispatchGroup()
+        var batchOperations: [[String: Any]] = []
         
         for goal in goals {
             guard let goalId = goal.id else { continue }
+            group.enter()
+            
             let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
             
             goalRef.getDocument { (document, error) in
+                defer { group.leave() }
+                
                 if let document = document, document.exists {
                     for date in self.dateRange(from: goal.startDate, to: min(today, goal.endDate)) {
                         let dateString = ISO8601DateFormatter().string(from: date)
@@ -157,27 +162,37 @@ class GoalViewModel: ObservableObject {
                                 "date": Timestamp(date: missedCompletion.date),
                                 "status": missedCompletion.status.rawValue
                             ]
-                            batch.updateData(["completions.\(dateString)": completionData], forDocument: goalRef)
+                            batchOperations.append([
+                                "ref": goalRef,
+                                "data": ["completions.\(dateString)": completionData]
+                            ])
                         }
                     }
-                    updatedGoals.append(goalId)
                 } else {
                     print("Document does not exist: \(goalId)")
                 }
-                
-                if goalId == self.goals.last?.id {
-                    if !updatedGoals.isEmpty {
-                        batch.commit { error in
-                            if let error = error {
-                                print("Error updating missed completions: \(error)")
-                            } else {
-                                print("Successfully updated missed completions for \(updatedGoals.count) goals")
-                            }
-                        }
-                    } else {
-                        print("No goals to update")
+            }
+        }
+        
+        group.notify(queue: .main) {
+            if !batchOperations.isEmpty {
+                let batch = self.db.batch()
+                for operation in batchOperations {
+                    if let ref = operation["ref"] as? DocumentReference,
+                       let data = operation["data"] as? [String: Any] {
+                        batch.updateData(data, forDocument: ref)
                     }
                 }
+                
+                batch.commit { error in
+                    if let error = error {
+                        print("Error updating missed completions: \(error)")
+                    } else {
+                        print("Successfully updated missed completions for \(batchOperations.count) operations")
+                    }
+                }
+            } else {
+                print("No goals to update")
             }
         }
     }
