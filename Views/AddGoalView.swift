@@ -43,7 +43,7 @@ struct AddGoalView: View {
                 if frequency == .xDays {
                     Section(header: Text("Required Completions")) {
                         Stepper(value: $requiredCompletions, in: 1...maxCompletions) {
-                            Text("\(requiredCompletions) days")
+                            Text("\(requiredCompletions) day\(requiredCompletions == 1 ? "" : "s")")
                         }
                     }
                 }
@@ -70,6 +70,8 @@ struct AddGoalView: View {
                 }
             }
             .navigationTitle("Add New Goal")
+            .onChange(of: startDate) { _ in updateRequiredCompletions() }
+            .onChange(of: endDate) { _ in updateRequiredCompletions() }
         }
         .onAppear {
             // Ensure startDate is set to today if it's in the past
@@ -79,36 +81,54 @@ struct AddGoalView: View {
         }
     }
     
+    private func updateRequiredCompletions() {
+        if frequency == .xDays {
+            requiredCompletions = min(requiredCompletions, maxCompletions)
+        }
+    }
+    
     private var maxCompletions: Int {
-        Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+        max(1, Calendar.current.numberOfDaysBetween(startDate, and: endDate))
     }
     
     private var isFormValid: Bool {
-        !title.isEmpty && !amountPerSuccess.isEmpty && Double(amountPerSuccess) != nil && agreementChecked
+        !title.isEmpty &&
+        !amountPerSuccess.isEmpty &&
+        Double(amountPerSuccess) != nil &&
+        agreementChecked &&
+        calculateTotalAmount() > 0  // This ensures the goal has at least one completion
     }
     
     private func calculateTotalAmount() -> Double {
         guard let amountPerSuccess = Double(amountPerSuccess) else { return 0 }
-        let completions: Int
+        let days: Int
         switch frequency {
         case .daily:
-            completions = Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+            days = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
+            print("Days for daily goal: \(days)")
         case .weekdays:
-            completions = countWeekdays(from: startDate, to: endDate)
+            days = countWeekdays(from: startDate, to: endDate)
+            print("Weekdays for goal: \(days)")
         case .weekends:
-            completions = countWeekends(from: startDate, to: endDate)
+            days = countWeekends(from: startDate, to: endDate)
+            print("Weekend days for goal: \(days)")
         case .xDays:
-            completions = requiredCompletions
+            days = min(requiredCompletions, maxCompletions)
+            print("Days for xDays goal: \(days)")
         }
-        return Double(completions) * amountPerSuccess
+        let totalAmount = Double(days) * amountPerSuccess
+        print("Total amount: \(totalAmount)")
+        return totalAmount
     }
     
     private func countWeekdays(from start: Date, to end: Date) -> Int {
-        var count = 0
-        var current = start
         let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: start)
+        let endDate = calendar.startOfDay(for: end)
+        var count = 0
+        var current = startDate
         
-        while current <= end {
+        while current <= endDate {
             let weekday = calendar.component(.weekday, from: current)
             if (2...6).contains(weekday) {
                 count += 1
@@ -118,13 +138,15 @@ struct AddGoalView: View {
         
         return count
     }
-    
+
     private func countWeekends(from start: Date, to end: Date) -> Int {
-        var count = 0
-        var current = start
         let calendar = Calendar.current
+        let startDate = calendar.startOfDay(for: start)
+        let endDate = calendar.startOfDay(for: end)
+        var count = 0
+        var current = startDate
         
-        while current <= end {
+        while current <= endDate {
             let weekday = calendar.component(.weekday, from: current)
             if weekday == 1 || weekday == 7 {
                 count += 1
@@ -140,7 +162,7 @@ struct AddGoalView: View {
             let requiredCompletions: Int
             switch frequency {
             case .daily:
-                requiredCompletions = Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+                requiredCompletions = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
             case .weekdays:
                 requiredCompletions = countWeekdays(from: startDate, to: endDate)
             case .weekends:
@@ -168,5 +190,14 @@ struct CheckboxToggleStyle: ToggleStyle {
                 .onTapGesture { configuration.isOn.toggle() }
             configuration.label
         }
+    }
+}
+
+extension Calendar {
+    func numberOfDaysBetween(_ from: Date, and to: Date) -> Int {
+        let fromDate = startOfDay(for: from) // <-- Normalize dates to start of day
+        let toDate = startOfDay(for: to)
+        let numberOfDays = dateComponents([.day], from: fromDate, to: toDate)
+        return numberOfDays.day! + 1 // <-- Add 1 to include both start and end dates
     }
 }
