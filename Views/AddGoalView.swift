@@ -70,8 +70,8 @@ struct AddGoalView: View {
                 }
             }
             .navigationTitle("Add New Goal")
-            .onChange(of: startDate) { _ in updateRequiredCompletions() }
-            .onChange(of: endDate) { _ in updateRequiredCompletions() }
+            .onChange(of: startDate) { _, _ in updateRequiredCompletions() }
+            .onChange(of: endDate) { _, _ in updateRequiredCompletions() }
         }
         .onAppear {
             // Ensure startDate is set to today if it's in the past

@@ -81,6 +81,13 @@ struct ContentView: View {
                         userManager.signOut()
                     }
                 }
+                ToolbarItem(placement: .bottomBar) {
+                    NavigationLink(destination: AboutView()) {
+                        Text("About/Contact")
+                            .foregroundColor(.blue)
+                            .font(.footnote)
+                    }
+                }
             }
             .sheet(isPresented: $showingAddGoal) {
                 AddGoalView(isPresented: $showingAddGoal)
