@@ -1,23 +1,17 @@
-Moneyvate is the app to help with your motivation through POSITIVE reinforcement!
+Moneyvate is the app that helps me with motivation through POSITIVE reinforcement!
 
-You may know the app Forfeit. You create goals, and if you don't accomplish them, you are charged money.
+I used to use an app called Forfeit, where I created goals, and if I didn't accomplish them, I was charged money.
 
-I loved using Forfeit, until I reached a sort of saturation point: I did achieve my goals, but out of fear!
-And I just... stopped using the app. At first, taking longer and longer breaks off, and then, ended up deleting all my goals there. 
+I loved using Forfeit until I reached a saturation point. I did achieve my goals, but out of fear! Eventually, I just stopped using the app. At first, I took longer and longer breaks, and then I ended up deleting all my goals there.
 
-So I thought: maybe if I felt *better* about my goals, I would not stop?
+So I thought: maybe if I felt better about my goals, I wouldn't stop?
 
-And the idea for Moneyvate was born:
-Even if it's *my* money that's paying me to do a goal, it might motivate me in a more pleasant way?  
-At the end of the day, it's still negative reinforcement: I pay a sum of money first, corresponding to  
-[days to accomplish goal] X [daily payment for success]!  
-It's *my* money that's coming back to me... so even though it's already gone and coming back upon success, if I fail I DO lose my own money.  
+And that's how the idea for Moneyvate was born: Even if it's your own money that's paying you to achieve a goal, it might motivate you in a more pleasant way.  
 
-But maybe it'll be enough to trick you into feeling better anyway! If I accomplish my goal, I'm GETTING money! Money is ENTERING my bank account! Hell yeah!
+At the end of the day, it's at least half a negative reinforcement lol! You pay a sum of money upfront, corresponding to  
+`[days to accomplish goal] X [daily payment for success]`  
+It IS *your* money that's coming back to you. Sure, you pay it at the beginning and then it just comes back if you succeed... but  if you fail, it's not coming back, and that's a loss...
 
-That's the theory.
+But maybe the "getting paid for goals" part will be enough to trick you into feeling better! If you accomplish your goal, you're GETTING money! Money is ENTERING your bank account! Hell yeah!
 
-Downside: we are more sensitive to loss than rewards. So if the fear of losing $10 might move me, the perspective of gaining $10 might not. 
-So you'll need to up the amounts.
-
-I'm my first user; let's see if it works!
+That's the theory, anyway.
