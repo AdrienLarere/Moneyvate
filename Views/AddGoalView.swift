@@ -99,10 +99,15 @@ struct AddGoalView: View {
         }
         .sheet(isPresented: $showingPaymentSheet) {
             if let paymentSheet = preparedPaymentSheet {
-                PaymentSheetUI(paymentSheet: paymentSheet, onCompletion: handlePaymentResult)
-                    .background(Color.clear) // This should help with the white background issue
+                ZStack {
+                    PaymentProcessingView()
+                    
+                    PaymentSheetUI(paymentSheet: paymentSheet) { result in
+                        handlePaymentResult(result)
+                    }
+                }
             } else {
-                ProgressView("Preparing payment...")
+                PaymentProcessingView()
             }
         }
         .alert(isPresented: $showingAlert) {
@@ -247,6 +252,26 @@ struct CheckboxToggleStyle: ToggleStyle {
                 .onTapGesture { configuration.isOn.toggle() }
             configuration.label
         }
+    }
+}
+
+struct PaymentProcessingView: View {
+    var body: some View {
+        VStack {
+            Text("Payment Processing")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+                .padding(.top, 50)
+            
+            Text("Please use the payment form below")
+                .font(.body)
+                .foregroundColor(.gray)
+                .padding(.top, 20)
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.white)
     }
 }
 
