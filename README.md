@@ -9,7 +9,8 @@ So I thought: maybe if I felt *better* about my goals, I would not stop?
 
 And the idea for Moneyvate was born:
 Even if it's *my* money that's paying me to do a goal, it might motivate me in a more pleasant way?  
-At the end of the day, it's still negative reinforcement: I pay a sum of money first, corresponding to [days to accomplish goal] X [daily payment for success]!  
+At the end of the day, it's still negative reinforcement: I pay a sum of money first, corresponding to  
+[days to accomplish goal] X [daily payment for success]!  
 It's *my* money that's coming back to me... so even though it's already gone and coming back upon success, if I fail I DO lose my own money.  
 
 But maybe it'll be enough to trick you into feeling better anyway! If I accomplish my goal, I'm GETTING money! Money is ENTERING my bank account! Hell yeah!
