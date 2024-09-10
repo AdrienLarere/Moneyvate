@@ -1,7 +1,12 @@
 import SwiftUI
+import UIKit
+import Stripe
+import StripePaymentSheet
+import Combine
 
 struct AddGoalView: View {
     @EnvironmentObject var viewModel: GoalViewModel
+    @StateObject private var paymentViewModel = PaymentViewModel()
     @Binding var isPresented: Bool
     @State private var title = ""
     @State private var frequency: Goal.Frequency = .daily
@@ -11,12 +16,19 @@ struct AddGoalView: View {
     @State private var requiredCompletions = 1
     @State private var verificationMethod: Goal.VerificationMethod = .selfVerify
     @State private var agreementChecked = false
+    @State private var paymentSheet: PaymentSheet?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showingPaymentSheet = false
+    @State private var preparedPaymentSheet: PaymentSheet?
+    @State private var alertTitle = ""
+    @State private var alertMessage = ""
+    @State private var showingAlert = false
     
-    // Assuming USD for this example. In a real app, you'd get this from user settings or localization.
     private let currency = "$"
-    private var today: Date {
-        Calendar.current.startOfDay(for: Date())
-    }
+    private var today: Date { Calendar.current.startOfDay(for: Date()) }
+    
+    private let debouncer = Debouncer(delay: 0.5)
     
     var body: some View {
         NavigationView {
@@ -63,40 +75,51 @@ struct AddGoalView: View {
                     }
                     .toggleStyle(CheckboxToggleStyle())
                     
-                    Button("Pay \(currency)\(calculateTotalAmount(), specifier: "%.2f")") {
-                        addGoal()
+                    Section {
+                        if paymentViewModel.isLoading {
+                            ProgressView("Preparing payment...")
+                        } else if let errorMessage = paymentViewModel.errorMessage {
+                            Text(errorMessage)
+                                .foregroundColor(.red)
+                        } else {
+                            Button("Pay \(currency)\(calculateTotalAmount(), specifier: "%.2f")") {
+                                initiatePayment()
+                            }
+                            .disabled(!isFormValid || !paymentViewModel.isNetworkAvailable)
+                        }
                     }
-                    .disabled(!isFormValid)
                 }
             }
             .navigationTitle("Add New Goal")
-            .onChange(of: startDate) { _, _ in updateRequiredCompletions() }
-            .onChange(of: endDate) { _, _ in updateRequiredCompletions() }
         }
         .onAppear {
-            // Ensure startDate is set to today if it's in the past
             if startDate < today {
                 startDate = today
             }
         }
-    }
-    
-    private func updateRequiredCompletions() {
-        if frequency == .xDays {
-            requiredCompletions = min(requiredCompletions, maxCompletions)
+        .sheet(isPresented: $showingPaymentSheet) {
+            if let paymentSheet = preparedPaymentSheet {
+                PaymentSheetUI(paymentSheet: paymentSheet, onCompletion: handlePaymentResult)
+                    .background(Color.clear) // This should help with the white background issue
+            } else {
+                ProgressView("Preparing payment...")
+            }
         }
-    }
-    
-    private var maxCompletions: Int {
-        max(1, Calendar.current.numberOfDaysBetween(startDate, and: endDate))
+        .alert(isPresented: $showingAlert) {
+            Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+        }
     }
     
     private var isFormValid: Bool {
         !title.isEmpty &&
         !amountPerSuccess.isEmpty &&
-        Double(amountPerSuccess) != nil &&
+        Double(amountPerSuccess) ?? 0 > 0 &&
         agreementChecked &&
-        calculateTotalAmount() > 0  // This ensures the goal has at least one completion
+        calculateTotalAmount() > 0
+    }
+    
+    private var maxCompletions: Int {
+        max(1, Calendar.current.numberOfDaysBetween(startDate, and: endDate))
     }
     
     private func calculateTotalAmount() -> Double {
@@ -105,20 +128,14 @@ struct AddGoalView: View {
         switch frequency {
         case .daily:
             days = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
-            print("Days for daily goal: \(days)")
         case .weekdays:
             days = countWeekdays(from: startDate, to: endDate)
-            print("Weekdays for goal: \(days)")
         case .weekends:
             days = countWeekends(from: startDate, to: endDate)
-            print("Weekend days for goal: \(days)")
         case .xDays:
-            days = min(requiredCompletions, maxCompletions)
-            print("Days for xDays goal: \(days)")
+            days = min(requiredCompletions, Calendar.current.numberOfDaysBetween(startDate, and: endDate))
         }
-        let totalAmount = Double(days) * amountPerSuccess
-        print("Total amount: \(totalAmount)")
-        return totalAmount
+        return Double(days) * amountPerSuccess
     }
     
     private func countWeekdays(from start: Date, to end: Date) -> Int {
@@ -157,6 +174,46 @@ struct AddGoalView: View {
         return count
     }
     
+    private func initiatePayment() {
+        print("Initiating payment process")
+        let amount = Int(calculateTotalAmount() * 100)
+        print("Calculated amount: \(amount)")
+        paymentViewModel.preparePaymentSheet(amount: amount) { paymentSheet in
+            if let paymentSheet = paymentSheet {
+                print("Payment sheet prepared successfully")
+                self.preparedPaymentSheet = paymentSheet
+                self.showingPaymentSheet = true
+            } else {
+                print("Failed to prepare payment sheet")
+                showAlert(title: "Error", message: "Failed to prepare payment sheet")
+            }
+        }
+    }
+
+    private func handlePaymentResult(_ result: PaymentSheetResult) {
+        DispatchQueue.main.async {
+            self.showingPaymentSheet = false // Dismiss the sheet
+            switch result {
+            case .completed:
+                print("Payment completed successfully")
+                self.addGoal()
+                self.showAlert(title: "Success", message: "Payment completed and goal added!")
+            case .failed(let error):
+                print("Payment failed with error: \(error.localizedDescription)")
+                self.showAlert(title: "Payment Failed", message: error.localizedDescription)
+            case .canceled:
+                print("Payment canceled by user")
+                self.showAlert(title: "Payment Canceled", message: "You've canceled the payment process.")
+            }
+        }
+    }
+    
+    private func showAlert(title: String, message: String) {
+        alertTitle = title
+        alertMessage = message
+        showingAlert = true
+    }
+    
     private func addGoal() {
         if let amountPerSuccess = Double(amountPerSuccess) {
             let requiredCompletions: Int
@@ -193,11 +250,26 @@ struct CheckboxToggleStyle: ToggleStyle {
     }
 }
 
+class Debouncer {
+    private let delay: TimeInterval
+    private var workItem: DispatchWorkItem?
+
+    init(delay: TimeInterval) {
+        self.delay = delay
+    }
+
+    func debounce(action: @escaping () -> Void) {
+        workItem?.cancel()
+        workItem = DispatchWorkItem(block: action)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem!)
+    }
+}
+
 extension Calendar {
     func numberOfDaysBetween(_ from: Date, and to: Date) -> Int {
-        let fromDate = startOfDay(for: from) // <-- Normalize dates to start of day
+        let fromDate = startOfDay(for: from)
         let toDate = startOfDay(for: to)
         let numberOfDays = dateComponents([.day], from: fromDate, to: toDate)
-        return numberOfDays.day! + 1 // <-- Add 1 to include both start and end dates
+        return numberOfDays.day! + 1
     }
 }
