@@ -31,18 +31,18 @@ class PaymentViewModel: ObservableObject {
         print("Creating payment intent for amount: \(amount)")
         isLoading = true
         errorMessage = nil
-        
+
         let baseURL = "https://moneyvate-server-e465a01b5e1c.herokuapp.com"
         let endpoint = "/create-payment-intent"
         let urlString = baseURL + endpoint
-        
+
         guard let url = URL(string: urlString) else {
             print("Invalid URL: \(urlString)")
             errorMessage = "Invalid URL"
             completion(false)
             return
         }
-        
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -57,42 +57,60 @@ class PaymentViewModel: ObservableObject {
                 self?.isLoading = false
                 if let error = error {
                     print("Network error: \(error.localizedDescription)")
-                    self?.errorMessage = "Network error: \(error.localizedDescription)"
+                    self?.handleError(message: "Network error: \(error.localizedDescription)")
                     completion(false)
                     return
                 }
-                
-                if let httpResponse = response as? HTTPURLResponse {
-                    print("Server responded with status code: \(httpResponse.statusCode)")
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    print("Invalid response received from the server")
+                    self?.handleError(message: "Invalid response from the server.")
+                    completion(false)
+                    return
                 }
-                
+
+                print("Server responded with status code: \(httpResponse.statusCode)")
+
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    print("Server returned an error status code: \(httpResponse.statusCode)")
+                    if let data = data,
+                       let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                       let serverErrorMessage = json["error"] as? String {
+                        self?.handleError(message: serverErrorMessage)
+                    } else {
+                        self?.handleError(message: "Server error occurred. Please try again later.")
+                    }
+                    completion(false)
+                    return
+                }
+
                 guard let data = data else {
                     print("No data received from the server")
-                    self?.errorMessage = "No data received from the server"
+                    self?.handleError(message: "No data received from the server")
                     completion(false)
                     return
                 }
-                
+
                 do {
                     if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                        let clientSecret = json["clientSecret"] as? String,
                        let publishableKey = json["publishableKey"] as? String {
-                      print("Successfully extracted client secret and publishable key")
-                      var configuration = PaymentSheet.Configuration()
-                      configuration.merchantDisplayName = "Moneyvate"
-                      configuration.defaultBillingDetails.name = "Jane Doe" // Add a default name
-                      StripeAPI.defaultPublishableKey = publishableKey
-                      self?.paymentSheet = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: configuration)
-                      print("PaymentSheet created successfully")
-                      completion(true)
+                        print("Successfully extracted client secret and publishable key")
+                        var configuration = PaymentSheet.Configuration()
+                        configuration.merchantDisplayName = "Moneyvate"
+                        configuration.defaultBillingDetails.name = "Jane Doe" // Add a default name
+                        StripeAPI.defaultPublishableKey = publishableKey
+                        self?.paymentSheet = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: configuration)
+                        print("PaymentSheet created successfully")
+                        completion(true)
                     } else {
-                      print("Client secret or publishable key not found in JSON response")
-                      self?.errorMessage = "Invalid response from the server"
-                      completion(false)
+                        print("Client secret or publishable key not found in JSON response")
+                        self?.handleError(message: "Invalid response from the server.")
+                        completion(false)
                     }
-                  } catch {
+                } catch {
                     print("Error parsing server response: \(error.localizedDescription)")
-                    self?.errorMessage = "Error parsing server response: \(error.localizedDescription)"
+                    self?.handleError(message: "Error parsing server response.")
                     completion(false)
                 }
             }
@@ -107,20 +125,22 @@ class PaymentViewModel: ObservableObject {
         }
         isLoading = true
         errorMessage = nil
-        
+
         createPaymentIntent(amount: amount) { [weak self] success in
             DispatchQueue.main.async {
                 self?.isLoading = false
                 if success {
                     completion(self?.paymentSheet)
                 } else {
-                    self?.errorMessage = "Failed to create payment intent"
+                    if self?.errorMessage == nil {
+                        self?.handleError(message: "Failed to create payment intent.")
+                    }
                     completion(nil)
                 }
             }
         }
     }
-    
+
     enum Environment {
         case development
         case production
@@ -139,8 +159,13 @@ class PaymentViewModel: ObservableObject {
             }
             DispatchQueue.main.async {
                 self?.currentEnvironment = environment == "production" ? .production : .development
-                print("Current environment: \(environment)")  // Add this line
+                print("Current environment: \(environment)")
             }
         }.resume()
+    }
+
+    private func handleError(message: String) {
+        self.errorMessage = message
+        print("Error: \(message)")
     }
 }
