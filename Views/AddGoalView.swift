@@ -16,14 +16,10 @@ struct AddGoalView: View {
     @State private var requiredCompletions = 1
     @State private var verificationMethod: Goal.VerificationMethod = .selfVerify
     @State private var agreementChecked = false
-    @State private var paymentSheet: PaymentSheet?
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var showingPaymentSheet = false
-    @State private var preparedPaymentSheet: PaymentSheet?
     @State private var alertTitle = ""
     @State private var alertMessage = ""
     @State private var showingAlert = false
+    @State private var showingPaymentSheet = false
     
     private let currency = "$"
     private var today: Date { Calendar.current.startOfDay(for: Date()) }
@@ -98,12 +94,13 @@ struct AddGoalView: View {
             }
         }
         .sheet(isPresented: $showingPaymentSheet) {
-            if let paymentSheet = preparedPaymentSheet {
+            if let paymentSheet = paymentViewModel.stripePaymentSheet {
                 ZStack {
                     PaymentProcessingView()
-                    
+
                     PaymentSheetUI(paymentSheet: paymentSheet) { result in
                         handlePaymentResult(result)
+                        showingPaymentSheet = false
                     }
                 }
             } else {
@@ -111,7 +108,16 @@ struct AddGoalView: View {
             }
         }
         .alert(isPresented: $showingAlert) {
-            Alert(title: Text(alertTitle), message: Text(alertMessage), dismissButton: .default(Text("OK")))
+            Alert(
+                title: Text(alertTitle),
+                message: Text(alertMessage),
+                dismissButton: .default(Text("OK"), action: {
+                    // Dismiss the AddGoalView after the alert is dismissed
+                    if alertTitle == "Success" {
+                        isPresented = false
+                    }
+                })
+            )
         }
     }
     
@@ -183,21 +189,22 @@ struct AddGoalView: View {
         print("Initiating payment process")
         let amount = Int(calculateTotalAmount() * 100)
         print("Calculated amount: \(amount)")
-        paymentViewModel.preparePaymentSheet(amount: amount) { paymentSheet in
-            if let paymentSheet = paymentSheet {
-                print("Payment sheet prepared successfully")
-                self.preparedPaymentSheet = paymentSheet
-                self.showingPaymentSheet = true
-            } else {
-                print("Failed to prepare payment sheet")
-                showAlert(title: "Error", message: "Failed to prepare payment sheet")
+        paymentViewModel.createPaymentIntent(amount: amount) { success in
+            DispatchQueue.main.async {
+                if success {
+                    print("Payment sheet prepared successfully")
+                    self.showingPaymentSheet = true
+                } else {
+                    print("Failed to prepare payment sheet")
+                    self.showAlert(title: "Error", message: "Failed to prepare payment sheet")
+                }
             }
         }
     }
 
     private func handlePaymentResult(_ result: PaymentSheetResult) {
         DispatchQueue.main.async {
-            self.showingPaymentSheet = false // Dismiss the sheet
+            self.showingPaymentSheet = false // Dismiss the payment sheet
             switch result {
             case .completed:
                 print("Payment completed successfully")
@@ -210,6 +217,17 @@ struct AddGoalView: View {
                 print("Payment canceled by user")
                 self.showAlert(title: "Payment Canceled", message: "You've canceled the payment process.")
             }
+        }
+    }
+
+
+    private func presentPaymentSheet() {
+        if paymentViewModel.stripePaymentSheet != nil {
+            print("stripePaymentSheet is available")
+            showingPaymentSheet = true
+        } else {
+            print("Payment sheet not available.")
+            showAlert(title: "Error", message: "Payment sheet not available.")
         }
     }
     
@@ -233,13 +251,13 @@ struct AddGoalView: View {
                 requiredCompletions = self.requiredCompletions
             }
             viewModel.addGoal(title: title,
-                              frequency: frequency,
-                              amountPerSuccess: amountPerSuccess,
-                              startDate: startDate,
-                              endDate: endDate,
-                              requiredCompletions: requiredCompletions,
-                              verificationMethod: verificationMethod)
-            isPresented = false
+              frequency: frequency,
+              amountPerSuccess: amountPerSuccess,
+              startDate: startDate,
+              endDate: endDate,
+              requiredCompletions: requiredCompletions,
+              verificationMethod: verificationMethod,
+              paymentIntentId: paymentViewModel.paymentIntentId) // Pass paymentIntentId
         }
     }
 }
@@ -272,6 +290,23 @@ struct PaymentProcessingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.white)
+    }
+}
+
+struct PaymentSheetView: UIViewControllerRepresentable {
+    let paymentSheet: PaymentSheet
+    let onCompletion: (PaymentSheetResult) -> Void
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let viewController = UIViewController()
+        viewController.view.backgroundColor = .clear
+        return viewController
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        paymentSheet.present(from: uiViewController) { result in
+            onCompletion(result)
+        }
     }
 }
 

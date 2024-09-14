@@ -86,6 +86,8 @@ struct GoalDetailView: View {
             return Text("Verified").italic().foregroundColor(.green)
         case .refunded:
             return Text("Refunded").italic().foregroundColor(.green)
+        case .refundFailed:
+            return Text("Refund Failed").italic().foregroundColor(.red)
         case .rejected:
             return Text("Rejected").italic().foregroundColor(.red.opacity(0.6))
         case .missed:

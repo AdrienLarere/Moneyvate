@@ -13,10 +13,18 @@ class GoalViewModel: ObservableObject {
         fetchGoals()
     }
     
-    func addGoal(title: String, frequency: Goal.Frequency, amountPerSuccess: Double, startDate: Date, endDate: Date, requiredCompletions: Int, verificationMethod: Goal.VerificationMethod) {
+    func addGoal(title: String,
+                 frequency: Goal.Frequency,
+                 amountPerSuccess: Double,
+                 startDate: Date,
+                 endDate: Date,
+                 requiredCompletions: Int,
+                 verificationMethod: Goal.VerificationMethod,
+                 paymentIntentId: String?) {  // Add paymentIntentId as an optional parameter
+
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
         guard let userId = Auth.auth().currentUser?.uid else { return }
-        
+
         let newGoal = Goal(id: nil,
                            userId: userId,
                            title: title,
@@ -25,8 +33,9 @@ class GoalViewModel: ObservableObject {
                            startDate: startDate,
                            endDate: endDate,
                            totalAmount: totalAmount,
-                           verificationMethod: verificationMethod)
-        
+                           verificationMethod: verificationMethod,
+                           paymentIntentId: paymentIntentId) // Add paymentIntentId to the goal
+
         do {
             try db.collection("users").document(userId).collection("goals").addDocument(from: newGoal)
         } catch {
