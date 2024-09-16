@@ -11,6 +11,7 @@ struct CompletionModalView: View {
     @State private var isShowingImagePicker = false
     @State private var isUploading = false
     @State private var errorMessage: String?
+    @State private var completionStatus: Completion.CompletionStatus?
     var onCompletion: () -> Void
 
     var body: some View {
@@ -42,6 +43,7 @@ struct CompletionModalView: View {
                 .background(Color.green)
                 .foregroundColor(.white)
                 .cornerRadius(10)
+                .disabled(isUploading)
             } else {
                 // Photo verification UI remains the same
                 if let image = image {
@@ -70,6 +72,12 @@ struct CompletionModalView: View {
                     .disabled(isUploading)
                 }
             }
+            
+            if let status = completionStatus {
+                Text(statusText(for: status))
+                    .foregroundColor(statusColor(for: status))
+                    .padding(.top, 10)
+            }
 
             if isUploading {
                 ProgressView()
@@ -95,16 +103,27 @@ struct CompletionModalView: View {
     }
 
     private func addCompletion(photoURL: String? = nil) {
+        isUploading = true
+        errorMessage = nil
+        
+        // Optimistically update local state
+        let newCompletion = Completion(goalId: goal.id!, date: date, status: .verified)
+        goal.completions[ISO8601DateFormatter().string(from: date)] = newCompletion
+
         viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { // Give some time for the update to propagate
-            if let updatedGoal = viewModel.goals.first(where: { $0.id == goal.id }) {
-                goal = updatedGoal
-                print("Goal updated in CompletionModalView: \(goal)")
-                onCompletion()  // Call the completion handler
-            } else {
-                print("Failed to find updated goal in CompletionModalView")
+        
+        if goal.verificationMethod == .selfVerify {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.triggerRefund()
             }
-            presentationMode.wrappedValue.dismiss()
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if let updatedGoal = self.viewModel.goals.first(where: { $0.id == self.goal.id }) {
+                self.goal = updatedGoal
+                self.onCompletion()
+            }
+            self.presentationMode.wrappedValue.dismiss()
         }
     }
 
@@ -140,6 +159,50 @@ struct CompletionModalView: View {
 
                 addCompletion(photoURL: downloadURL.absoluteString)
             }
+        }
+    }
+    
+    private func triggerRefund() {
+        viewModel.triggerRefund(for: goal, on: date) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self.completionStatus = .refunded
+                case .failure(let error):
+                    self.completionStatus = .refundFailed
+                    self.errorMessage = "Refund failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+    
+    private func statusText(for status: Completion.CompletionStatus) -> String {
+        switch status {
+        case .pendingVerification:
+            return "Pending Verification"
+        case .verified:
+            return "Verified"
+        case .refunded:
+            return "Refunded"
+        case .refundFailed:
+            return "Refund Failed"
+        case .rejected:
+            return "Rejected"
+        case .missed:
+            return "Missed"
+        }
+    }
+
+    private func statusColor(for status: Completion.CompletionStatus) -> Color {
+        switch status {
+        case .pendingVerification:
+            return .yellow
+        case .verified, .refunded:
+            return .green
+        case .refundFailed, .rejected:
+            return .red
+        case .missed:
+            return .orange
         }
     }
 }

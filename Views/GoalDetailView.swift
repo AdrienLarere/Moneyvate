@@ -49,6 +49,11 @@ struct GoalDetailView: View {
                 refreshGoal()
             }
         }
+        .onReceive(viewModel.$goals) { goals in
+            if let updatedGoal = goals.first(where: { $0.id == goal.id }) {
+                self.goal = updatedGoal
+            }
+        }
     }
     
     private func completionStatusView(for date: Date) -> some View {
@@ -81,7 +86,7 @@ struct GoalDetailView: View {
     private func completionStatusText(for completion: Completion) -> some View {
         switch completion.status {
         case .pendingVerification:
-            return Text("Pending").italic().foregroundColor(.gray)
+            return Text("Pending Verification").italic().foregroundColor(.gray)
         case .verified:
             return Text("Verified").italic().foregroundColor(.green)
         case .refunded:

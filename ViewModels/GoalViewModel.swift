@@ -14,27 +14,27 @@ class GoalViewModel: ObservableObject {
     }
     
     func addGoal(title: String,
-                 frequency: Goal.Frequency,
-                 amountPerSuccess: Double,
-                 startDate: Date,
-                 endDate: Date,
-                 requiredCompletions: Int,
-                 verificationMethod: Goal.VerificationMethod,
-                 paymentIntentId: String?) {  // Add paymentIntentId as an optional parameter
+         frequency: Goal.Frequency,
+         amountPerSuccess: Double,
+         startDate: Date,
+         endDate: Date,
+         requiredCompletions: Int,
+         verificationMethod: Goal.VerificationMethod,
+         paymentIntentId: String?) {  // Add paymentIntentId as an optional parameter
 
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
         guard let userId = Auth.auth().currentUser?.uid else { return }
 
         let newGoal = Goal(id: nil,
-                           userId: userId,
-                           title: title,
-                           frequency: frequency,
-                           amountPerSuccess: amountPerSuccess,
-                           startDate: startDate,
-                           endDate: endDate,
-                           totalAmount: totalAmount,
-                           verificationMethod: verificationMethod,
-                           paymentIntentId: paymentIntentId) // Add paymentIntentId to the goal
+           userId: userId,
+           title: title,
+           frequency: frequency,
+           amountPerSuccess: amountPerSuccess,
+           startDate: startDate,
+           endDate: endDate,
+           totalAmount: totalAmount,
+           verificationMethod: verificationMethod,
+           paymentIntentId: paymentIntentId) // Add paymentIntentId to the goal
 
         do {
             try db.collection("users").document(userId).collection("goals").addDocument(from: newGoal)
@@ -62,7 +62,8 @@ class GoalViewModel: ObservableObject {
             "status": newCompletion.status.rawValue,
             "verificationPhotoUrl": newCompletion.verificationPhotoUrl as Any,
             "verifiedAt": newCompletion.verifiedAt.map { Timestamp(date: $0) } as Any,
-            "refundedAt": newCompletion.refundedAt.map { Timestamp(date: $0) } as Any
+            "refundedAt": newCompletion.refundedAt.map { Timestamp(date: $0) } as Any,
+            "updatedAt": FieldValue.serverTimestamp()
         ]
 
         goalRef.updateData([
@@ -105,15 +106,32 @@ class GoalViewModel: ObservableObject {
         print("Fetching goals for user: \(userId)")
         
         listenerRegistration = db.collection("users").document(userId).collection("goals")
-            .addSnapshotListener { [weak self] querySnapshot, error in
-                if let error = error {
-                    print("Error fetching documents: \(error.localizedDescription)")
+            .addSnapshotListener(includeMetadataChanges: true) { [weak self] querySnapshot, error in
+                guard let snapshot = querySnapshot else {
+                    print("Error fetching goals: \(error?.localizedDescription ?? "Unknown error")")
                     return
                 }
                 
-                guard let documents = querySnapshot?.documents else {
+                if snapshot.metadata.isFromCache {
+                    print("Data came from cache")
+                } else {
+                    print("Data came from server")
+                }
+                
+                let documents = snapshot.documents
+                
+                if documents.isEmpty {
                     print("No documents found")
+                    DispatchQueue.main.async {
+                        self?.goals = []
+                        self?.updateBalance()
+                        self?.objectWillChange.send()
+                    }
                     return
+                }
+                
+                for document in documents {
+                    print("Raw Firestore data for goal: \(document.data())")
                 }
                 
                 let newGoals = documents.compactMap { queryDocumentSnapshot -> Goal? in
@@ -135,6 +153,9 @@ class GoalViewModel: ObservableObject {
                     if oldGoalIds != newGoalIds {
                         self?.checkAndUpdateMissedCompletions()
                     }
+                    
+                    // Notify observers that goals have been updated
+                    self?.objectWillChange.send()
                 }
             }
     }
@@ -218,6 +239,55 @@ class GoalViewModel: ObservableObject {
        }
 
        return dates
+    }
+    
+    func triggerRefund(for goal: Goal, on date: Date, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid user or goal ID"])))
+            return
+        }
+
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        let dateString = ISO8601DateFormatter().string(from: date)
+
+        // First, check if the completion exists and is verified
+        goalRef.getDocument { [weak self] (document, error) in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+
+            guard let document = document, document.exists,
+                  let completions = document.data()?["completions"] as? [String: [String: Any]],
+                  let completionData = completions[dateString],
+                  let status = completionData["status"] as? String,
+                  status == Completion.CompletionStatus.verified.rawValue else {
+                completion(.failure(NSError(domain: "GoalViewModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Completion not found or not verified"])))
+                return
+            }
+
+            // TODO: Implement actual refund logic here using Stripe API
+            // For now, we'll simulate a successful refund
+
+            // Update the completion status to refunded
+            goalRef.updateData([
+                "completions.\(dateString).status": Completion.CompletionStatus.refunded.rawValue,
+                "completions.\(dateString).refundedAt": Timestamp(date: Date())
+            ]) { error in
+                if let error = error {
+                    completion(.failure(error))
+                } else {
+                    // Update the local goal object
+                    if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
+                        self?.goals[index].completions[dateString]?.status = .refunded
+                        self?.goals[index].completions[dateString]?.refundedAt = Date()
+                        self?.updateBalance()
+                        self?.objectWillChange.send()
+                    }
+                    completion(.success(()))
+                }
+            }
+        }
     }
     
     func updateGoal(_ updatedGoal: Goal) {
