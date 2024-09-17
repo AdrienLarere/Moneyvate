@@ -15,6 +15,8 @@ struct AboutView: View {
                 
                 Text("Moneyvate is an app designed to help you achieve your goals through financial motivation. \nSet goals, commit funds, and earn them back as you make progress.")
                 
+                Text("The money you earn back is processed as a partial refund for every day completed. Refunds usually take 5-10 days to be processed, so this is the delay you should expect before seeing the money in your bank account.")
+                
                 Text("Created by: Adrien Larere")
                 
                 Divider()
