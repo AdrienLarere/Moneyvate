@@ -8,6 +8,10 @@ class GoalViewModel: ObservableObject {
 
     private var db = Firestore.firestore()
     private var listenerRegistration: ListenerRegistration?
+    
+    var totalEarnedBack: Double {
+        goals.reduce(0) { $0 + $1.earnedAmount }
+    }
 
     init() {
         fetchGoals()

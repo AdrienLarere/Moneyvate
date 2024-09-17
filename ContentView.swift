@@ -46,7 +46,7 @@ struct ContentView: View {
     private var mainView: some View {
         NavigationView {
             List {
-                Text("Balance: £\(viewModel.balance, specifier: "%.2f")")
+                Text("Total Earned Back: £\(viewModel.totalEarnedBack, specifier: "%.2f")")
                     .foregroundColor(.primary)
                     .listRowInsets(EdgeInsets(top: 25, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
