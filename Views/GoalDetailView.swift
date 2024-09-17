@@ -58,10 +58,8 @@ struct GoalDetailView: View {
     
     private func completionStatusView(for date: Date) -> some View {
         let dateString = ISO8601DateFormatter().string(from: date)
-        print("Checking completion status for date: \(dateString)")
         
         if let completion = goal.completions[dateString] {
-            print("Completion found for date: \(dateString), status: \(completion.status)")
             return AnyView(completionStatusText(for: completion))
         } else if canCompleteForDate(date) {
             print("Can complete for date: \(dateString)")
@@ -71,12 +69,10 @@ struct GoalDetailView: View {
             }
             .buttonStyle(BorderlessButtonStyle()))
         } else if isPast(date) {
-            print("Date is in the past: \(dateString)")
             return AnyView(Text("Missed")
                 .italic()
                 .foregroundColor(.orange))
         } else {
-            print("Date is upcoming: \(dateString)")
             return AnyView(Text("Upcoming")
                 .font(.caption)
                 .foregroundColor(.gray))

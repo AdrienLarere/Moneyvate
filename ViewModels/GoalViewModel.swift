@@ -130,10 +130,6 @@ class GoalViewModel: ObservableObject {
                     return
                 }
                 
-                for document in documents {
-                    print("Raw Firestore data for goal: \(document.data())")
-                }
-                
                 let newGoals = documents.compactMap { queryDocumentSnapshot -> Goal? in
                     do {
                         return try queryDocumentSnapshot.data(as: Goal.self)
@@ -242,8 +238,8 @@ class GoalViewModel: ObservableObject {
     }
     
     func triggerRefund(for goal: Goal, on date: Date, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else {
-            completion(.failure(NSError(domain: "GoalViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid user or goal ID"])))
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id, let paymentIntentId = goal.paymentIntentId else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid user, goal ID, or payment intent ID"])))
             return
         }
 
@@ -266,27 +262,120 @@ class GoalViewModel: ObservableObject {
                 return
             }
 
-            // TODO: Implement actual refund logic here using Stripe API
-            // For now, we'll simulate a successful refund
-
-            // Update the completion status to refunded
-            goalRef.updateData([
-                "completions.\(dateString).status": Completion.CompletionStatus.refunded.rawValue,
-                "completions.\(dateString).refundedAt": Timestamp(date: Date())
-            ]) { error in
-                if let error = error {
-                    completion(.failure(error))
-                } else {
-                    // Update the local goal object
-                    if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
-                        self?.goals[index].completions[dateString]?.status = .refunded
-                        self?.goals[index].completions[dateString]?.refundedAt = Date()
-                        self?.updateBalance()
-                        self?.objectWillChange.send()
+            // Implement actual refund logic here using Stripe API
+            self?.processRefund(paymentIntentId: paymentIntentId, amount: Int(goal.amountPerSuccess * 100)) { result in
+                switch result {
+                case .success:
+                    // Update the completion status to refunded
+                    goalRef.updateData([
+                        "completions.\(dateString).status": Completion.CompletionStatus.refunded.rawValue,
+                        "completions.\(dateString).refundedAt": Timestamp(date: Date())
+                    ]) { error in
+                        if let error = error {
+                            completion(.failure(error))
+                        } else {
+                            // Update the local goal object
+                            if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
+                                self?.goals[index].completions[dateString]?.status = .refunded
+                                self?.goals[index].completions[dateString]?.refundedAt = Date()
+                                self?.updateBalance()
+                                self?.objectWillChange.send()
+                            }
+                            completion(.success(()))
+                        }
                     }
-                    completion(.success(()))
+                case .failure(let error):
+                    completion(.failure(error))
                 }
             }
+        }
+    }
+
+    private func processRefund(paymentIntentId: String, amount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let url = URL(string: "https://moneyvate-server-e465a01b5e1c.herokuapp.com/refund-payment") else {
+            print("Invalid server URL")
+            completion(.failure(NSError(domain: "GoalViewModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid server URL"])))
+            return
+        }
+
+        print("Initiating refund process for paymentIntentId: \(paymentIntentId), amount: \(amount)")
+
+        // Get the ID token asynchronously
+        Auth.auth().currentUser?.getIDToken { token, error in
+            if let error = error {
+                print("Error getting ID token: \(error.localizedDescription)")
+                completion(.failure(error))
+                return
+            }
+            
+            guard let token = token else {
+                print("Failed to get authentication token")
+                completion(.failure(NSError(domain: "GoalViewModel", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to get authentication token"])))
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            let body: [String: Any] = [
+                "paymentIntentId": paymentIntentId,
+                "amount": amount
+            ]
+
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                print("Request body: \(body)")
+            } catch {
+                print("Error creating request body: \(error.localizedDescription)")
+                completion(.failure(error))
+                return
+            }
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("Network error: \(error.localizedDescription)")
+                    completion(.failure(error))
+                    return
+                }
+
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("HTTP response status code: \(httpResponse.statusCode)")
+                }
+
+                guard let data = data else {
+                    print("No data received from server")
+                    completion(.failure(NSError(domain: "GoalViewModel", code: 4, userInfo: [NSLocalizedDescriptionKey: "No data received from server"])))
+                    return
+                }
+
+                // Log the raw response data
+                if let rawResponse = String(data: data, encoding: .utf8) {
+                    print("Raw server response: \(rawResponse)")
+                } else {
+                    print("Unable to convert response data to string")
+                }
+
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        print("Parsed server response: \(json)")
+                        if let success = json["success"] as? Bool, success {
+                            print("Refund successful")
+                            completion(.success(()))
+                        } else {
+                            print("Refund failed")
+                            completion(.failure(NSError(domain: "GoalViewModel", code: 5, userInfo: [NSLocalizedDescriptionKey: "Refund failed"])))
+                        }
+                    } else {
+                        print("Invalid JSON response")
+                        completion(.failure(NSError(domain: "GoalViewModel", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])))
+                    }
+                } catch {
+                    print("Error parsing server response: \(error.localizedDescription)")
+                    completion(.failure(error))
+                }
+            }.resume()
         }
     }
     
