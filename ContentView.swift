@@ -161,29 +161,43 @@ struct GoalRowView: View {
         let today = Calendar.current.startOfDay(for: now)
         let isActiveGoal = goal.startDate <= now && goal.endDate >= today
 
+        print("Goal: \(goal.title)")
+        print("Is active goal: \(isActiveGoal)")
+
         if !isActiveGoal {
             return false
         }
-        let hasCompletionToday = goal.hasCompletionForToday()
+        
+        let todayCompletions = goal.completions.values.filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
+        print("Today's completions: \(todayCompletions)")
+        
+        let hasValidCompletionToday = todayCompletions.contains { completion in
+            completion.status == .verified || completion.status == .refunded || completion.status == .pendingVerification
+        }
+        
+        print("Has valid completion today: \(hasValidCompletionToday)")
+
         let shouldShow: Bool
         switch goal.frequency {
         case .daily:
-            shouldShow = !hasCompletionToday
+            shouldShow = !hasValidCompletionToday
         case .xDays:
-            let completedCount = goal.completions.values.filter { $0.status == .verified }.count
-            shouldShow = completedCount < goal.requiredCompletions && !hasCompletionToday
+            let completedCount = goal.completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
+            shouldShow = completedCount < goal.requiredCompletions && !hasValidCompletionToday
         case .weekdays:
             let isWeekday = !Calendar.current.isDateInWeekend(today)
-            shouldShow = isWeekday && !hasCompletionToday
+            shouldShow = isWeekday && !hasValidCompletionToday
         case .weekends:
             let isWeekend = Calendar.current.isDateInWeekend(today)
-            shouldShow = isWeekend && !hasCompletionToday
+            shouldShow = isWeekend && !hasValidCompletionToday
         }
+        
+        print("Should show notification dot: \(shouldShow)")
         return shouldShow
     }
     
     private var completedCompletionsCount: Int {
-        goal.completions.values.filter { $0.status == .verified }.count
+        goal.completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
     }
 }
 
