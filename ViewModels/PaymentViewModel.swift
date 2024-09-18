@@ -58,7 +58,7 @@ class PaymentViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        let baseURL = "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com"
+        let baseURL = "\(AppConfig.serverURL)"
         let endpoint = "/create-payment-intent"
         let urlString = baseURL + endpoint
         
@@ -80,7 +80,7 @@ class PaymentViewModel: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(currentEnvironment == .production ? "production" : "development", forHTTPHeaderField: "X-Environment")
+        request.setValue(AppConfig.environment == .production ? "production" : "development", forHTTPHeaderField: "X-Environment")
         
         let body = ["amount": amount]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -142,18 +142,16 @@ class PaymentViewModel: ObservableObject {
                     let json = try JSONSerialization.jsonObject(with: data, options: [])
                     if let dict = json as? [String: Any],
                        let clientSecret = dict["clientSecret"] as? String,
-                       let publishableKey = dict["publishableKey"] as? String,
                        let paymentIntentId = dict["paymentIntentId"] as? String {
-                        print("Successfully extracted client secret, publishable key, and payment intent ID")
+                        print("Successfully extracted client secret and payment intent ID")
                         
                         print("Received clientSecret: \(clientSecret)")
-                       print("Received publishableKey: \(publishableKey)")
-                       print("Received paymentIntentId: \(paymentIntentId)")
+                        print("Received paymentIntentId: \(paymentIntentId)")
                         
                         var configuration = PaymentSheet.Configuration()
                         configuration.merchantDisplayName = "Moneyvate"
                         configuration.defaultBillingDetails.name = "Jane Doe" // Replace with the user's name if available
-                        StripeAPI.defaultPublishableKey = publishableKey
+                        StripeAPI.defaultPublishableKey = AppConfig.stripePublishableKey
                         self?.stripePaymentSheet = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: configuration)
 
                         let paymentSheet = PaymentSheet(paymentIntentClientSecret: clientSecret, configuration: configuration)
@@ -191,7 +189,7 @@ class PaymentViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        let baseURL = "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com"
+        let baseURL = "\(AppConfig.serverURL)"
         let endpoint = "/refund-payment"
         let urlString = baseURL + endpoint
         
@@ -258,15 +256,10 @@ class PaymentViewModel: ObservableObject {
         }.resume()
     }
     
-    enum Environment {
-        case development
-        case production
-    }
-    
-    @Published var currentEnvironment: Environment = .development
+    @Published var currentEnvironment: Env = AppConfig.environment
     
     func fetchEnvironment() {
-        let url = URL(string: "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com/environment")!
+        let url = URL(string: "\(AppConfig.serverURL)/environment")!
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data, options: []),

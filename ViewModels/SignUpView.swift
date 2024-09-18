@@ -5,7 +5,7 @@ struct SignUpView: View {
     @EnvironmentObject var userManager: UserManager
     @State private var email = ""
     @State private var password = ""
-    @Environment(\.presentationMode) var presentationMode
+    @Environment(\.dismiss) private var dismiss
     @State private var showingAlert = false
     @State private var showingErrorAlert = false
     @State private var alertMessage = ""
@@ -51,7 +51,7 @@ struct SignUpView: View {
             switch result {
             case .success:
                 print("Signed up successfully")
-                presentationMode.wrappedValue.dismiss()
+                dismiss()
             case .failure(let error):
                 errorMessage = userManager.errorMessage ?? error.localizedDescription
                 showingErrorAlert = true
