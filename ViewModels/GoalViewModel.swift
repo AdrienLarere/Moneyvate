@@ -296,7 +296,7 @@ class GoalViewModel: ObservableObject {
     }
 
     private func processRefund(paymentIntentId: String, amount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let url = URL(string: "https://moneyvate-server-e465a01b5e1c.herokuapp.com/refund-payment") else {
+        guard let url = URL(string: "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com/refund-payment") else {
             print("Invalid server URL")
             completion(.failure(NSError(domain: "GoalViewModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid server URL"])))
             return

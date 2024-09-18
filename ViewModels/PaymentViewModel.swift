@@ -58,7 +58,7 @@ class PaymentViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        let baseURL = "https://moneyvate-server-e465a01b5e1c.herokuapp.com"
+        let baseURL = "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com"
         let endpoint = "/create-payment-intent"
         let urlString = baseURL + endpoint
         
@@ -191,7 +191,7 @@ class PaymentViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         
-        let baseURL = "https://moneyvate-server-e465a01b5e1c.herokuapp.com"
+        let baseURL = "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com"
         let endpoint = "/refund-payment"
         let urlString = baseURL + endpoint
         
@@ -266,7 +266,7 @@ class PaymentViewModel: ObservableObject {
     @Published var currentEnvironment: Environment = .development
     
     func fetchEnvironment() {
-        let url = URL(string: "https://moneyvate-server-e465a01b5e1c.herokuapp.com/environment")!
+        let url = URL(string: "https://moneyvate-server-dev-f596ca194fd7.herokuapp.com/environment")!
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data, options: []),
