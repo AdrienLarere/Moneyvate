@@ -63,7 +63,7 @@
     <string>Moneyvate needs access to your photo library to upload verification photos.</string>
     <key>com.apple.developer.in-app-payments</key>
         <array>
-            <string>merchant.com.yourdomain.moneyvate</string>
+            <string>merchant.com.moneyvate</string>
         </array>
 </dict>
 </plist>
