@@ -61,5 +61,9 @@
     <string>Moneyvate needs access to your camera to verify goal completions.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Moneyvate needs access to your photo library to upload verification photos.</string>
+    <key>com.apple.developer.in-app-payments</key>
+        <array>
+            <string>merchant.com.yourdomain.moneyvate</string>
+        </array>
 </dict>
 </plist>

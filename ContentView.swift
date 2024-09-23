@@ -161,21 +161,15 @@ struct GoalRowView: View {
         let today = Calendar.current.startOfDay(for: now)
         let isActiveGoal = goal.startDate <= now && goal.endDate >= today
 
-        print("Goal: \(goal.title)")
-        print("Is active goal: \(isActiveGoal)")
-
         if !isActiveGoal {
             return false
         }
         
         let todayCompletions = goal.completions.values.filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
-        print("Today's completions: \(todayCompletions)")
         
         let hasValidCompletionToday = todayCompletions.contains { completion in
             completion.status == .verified || completion.status == .refunded || completion.status == .pendingVerification
         }
-        
-        print("Has valid completion today: \(hasValidCompletionToday)")
 
         let shouldShow: Bool
         switch goal.frequency {
@@ -192,7 +186,6 @@ struct GoalRowView: View {
             shouldShow = isWeekend && !hasValidCompletionToday
         }
         
-        print("Should show notification dot: \(shouldShow)")
         return shouldShow
     }
     
