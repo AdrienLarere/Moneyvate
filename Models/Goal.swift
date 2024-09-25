@@ -13,6 +13,7 @@ struct Goal: Identifiable, Codable {
     var verificationMethod: VerificationMethod
     var paymentIntentId: String? // New field to store Payment Intent ID
     var completions: [String: Completion] = [:]
+    var currency: String?
     
     enum Frequency: String, Codable, CaseIterable, Identifiable {
         case daily = "Every day"
@@ -31,7 +32,7 @@ struct Goal: Identifiable, Codable {
     }
     
     enum CodingKeys: String, CodingKey {
-        case id, userId, title, frequency, amountPerSuccess, startDate, endDate, totalAmount, verificationMethod, paymentIntentId, completions
+        case id, userId, title, frequency, amountPerSuccess, startDate, endDate, totalAmount, verificationMethod, paymentIntentId, completions, currency
     }
 
     init(id: String? = nil,
@@ -43,6 +44,7 @@ struct Goal: Identifiable, Codable {
          endDate: Date,
          totalAmount: Double,
          verificationMethod: VerificationMethod,
+         currency: String?,
          paymentIntentId: String? = nil,
          completions: [String: Completion] = [:]) {
         self.id = id
@@ -54,6 +56,7 @@ struct Goal: Identifiable, Codable {
         self.endDate = endDate
         self.totalAmount = totalAmount
         self.verificationMethod = verificationMethod
+        self.currency = currency // Assign currency
         self.paymentIntentId = paymentIntentId
         self.completions = completions
     }

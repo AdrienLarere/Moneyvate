@@ -24,6 +24,7 @@ class GoalViewModel: ObservableObject {
          endDate: Date,
          requiredCompletions: Int,
          verificationMethod: Goal.VerificationMethod,
+         currency: String, // Add currency parameter
          paymentIntentId: String?) {  // Add paymentIntentId as an optional parameter
 
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
@@ -38,6 +39,7 @@ class GoalViewModel: ObservableObject {
            endDate: endDate,
            totalAmount: totalAmount,
            verificationMethod: verificationMethod,
+           currency: currency, // Add currency parameter
            paymentIntentId: paymentIntentId) // Add paymentIntentId to the goal
 
         do {
@@ -144,17 +146,14 @@ class GoalViewModel: ObservableObject {
                 }
                 
                 DispatchQueue.main.async {
-                    let oldGoalIds = Set(self?.goals.compactMap { $0.id } ?? [])
-                    let newGoalIds = Set(newGoals.compactMap { $0.id })
-                    
                     self?.goals = newGoals
                     self?.updateBalance()
-                    
-                    if oldGoalIds != newGoalIds {
-                        self?.checkAndUpdateMissedCompletions()
+
+                    // Debug: Print currencies of all goals
+                    for goal in newGoals {
+                        print("Goal ID: \(goal.id ?? "unknown"), Currency: \(goal.currency ?? "nil")")
                     }
-                    
-                    // Notify observers that goals have been updated
+
                     self?.objectWillChange.send()
                 }
             }
@@ -162,6 +161,17 @@ class GoalViewModel: ObservableObject {
     
     func getGoal(withId id: String) -> Goal? {
         return goals.first { $0.id == id }
+    }
+    
+    func updateGoalInDatabase(_ goal: Goal) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+
+        do {
+            try goalRef.setData(from: goal, merge: true) // Use merge to update only changed fields
+        } catch {
+            print("Error updating goal: \(error.localizedDescription)")
+        }
     }
     
     private func checkAndUpdateMissedCompletions() {

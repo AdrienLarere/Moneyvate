@@ -7,6 +7,7 @@ import PassKit
 
 struct AddGoalView: View {
     @EnvironmentObject var viewModel: GoalViewModel
+    @EnvironmentObject var userManager: UserManager
     @StateObject private var paymentViewModel = PaymentViewModel()
     @Binding var isPresented: Bool
     @State private var title = ""
@@ -24,7 +25,10 @@ struct AddGoalView: View {
     @State private var showingApplePay = false
     @State private var applePayRequest: PKPaymentRequest?
     
-    private let currency = "$"
+    private var currencySymbol: String {
+        let locale = Locale(identifier: Locale.current.identifier)
+        return CurrencyHelper.currencySymbol(for: userManager.currentCurrency) ?? locale.currencySymbol ?? "$"
+    }
     private var today: Date { Calendar.current.startOfDay(for: Date()) }
     
     private let debouncer = Debouncer(delay: 0.5)
@@ -40,7 +44,7 @@ struct AddGoalView: View {
                         }
                     }
                     HStack {
-                        Text(currency)
+                        Text(currencySymbol)
                         TextField("Amount per Success", text: $amountPerSuccess)
                             .keyboardType(.decimalPad)
                     }
@@ -81,9 +85,9 @@ struct AddGoalView: View {
                             Text(errorMessage)
                                 .foregroundColor(.red)
                         } else {
-                            Button("Pay \(currency)\(String(format: "%.2f", calculateTotalAmount()))") {
-                                            initiatePayment()
-                                        }
+                            Button("Pay \(CurrencyHelper.format(amount: calculateTotalAmount(), currencyCode: userManager.currentCurrency))") {
+                                initiatePayment()
+                            }
                             .disabled(!isFormValid || !paymentViewModel.isNetworkAvailable)
                         }
                     }
@@ -198,7 +202,7 @@ struct AddGoalView: View {
         let amount = Int(calculateTotalAmount() * 100)
         print("Calculated amount: \(amount)")
         
-        paymentViewModel.createPaymentIntent(amount: amount) { success in
+        paymentViewModel.createPaymentIntent(amount: amount, currencyCode: userManager.currentCurrency) { success in
             DispatchQueue.main.async {
                 if success {
                     print("Payment intent created successfully")
@@ -283,6 +287,7 @@ struct AddGoalView: View {
               endDate: endDate,
               requiredCompletions: requiredCompletions,
               verificationMethod: verificationMethod,
+              currency: userManager.currentCurrency,
               paymentIntentId: paymentViewModel.paymentIntentId) // Pass paymentIntentId
         }
     }

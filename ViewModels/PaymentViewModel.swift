@@ -60,8 +60,8 @@ class PaymentViewModel: ObservableObject {
         }
     }
     
-    func createPaymentIntent(amount: Int, completion: @escaping (Bool) -> Void) {
-            print("Creating payment intent for amount: \(amount)")
+    func createPaymentIntent(amount: Int, currencyCode: String, completion: @escaping (Bool) -> Void) {
+            print("Creating payment intent for amount: \(amount) in currency: \(currencyCode)")
             isLoading = true
             errorMessage = nil
             
@@ -82,8 +82,9 @@ class PaymentViewModel: ObservableObject {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(AppConfig.environment == .production ? "production" : "development", forHTTPHeaderField: "X-Environment")
             
-            let body = ["amount": amount]
+            let body: [String: Any] = ["amount": amount, "currency": currencyCode]
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
             
             URLSession.shared.dataTask(with: request) { [weak self] (data, response, error) in
                 DispatchQueue.main.async {

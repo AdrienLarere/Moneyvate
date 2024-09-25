@@ -1,6 +1,7 @@
 import Foundation
 import Firebase
 import FirebaseAuth
+import FirebaseFirestore
 import AuthenticationServices
 import CryptoKit
 
@@ -10,6 +11,11 @@ class UserManager: NSObject, ObservableObject {
     @Published var isEmailVerified = false
     @Published var isNewUser = false
     @Published var errorMessage: String?
+    @Published var userProfile: UserProfile?
+    
+    var currentCurrency: String {
+        return userProfile?.currency ?? "USD"
+    }
     
     private var handle: AuthStateDidChangeListenerHandle?
     private var currentNonce: String?
@@ -21,6 +27,11 @@ class UserManager: NSObject, ObservableObject {
             self?.user = user
             self?.isAuthenticated = user != nil
             self?.isEmailVerified = user?.isEmailVerified ?? false
+            if user != nil {
+                self?.loadUserProfile()
+            } else {
+                self?.userProfile = nil
+            }
         }
     }
     
@@ -118,6 +129,48 @@ class UserManager: NSObject, ObservableObject {
                 completion(.failure(error))
             } else if let user = authResult?.user {
                 completion(.success(user))
+            }
+        }
+    }
+    
+    func loadUserProfile() {
+        guard let user = Auth.auth().currentUser else { return }
+        let db = Firestore.firestore()
+        let docRef = db.collection("users").document(user.uid)
+        
+        docRef.getDocument { [weak self] (document, error) in
+            if let document = document, document.exists {
+                do {
+                    self?.userProfile = try document.data(as: UserProfile.self)
+                } catch {
+                    print("Error decoding user profile: \(error)")
+                }
+            } else {
+                // If the document does not exist, create a new user profile
+                self?.createUserProfile(for: user)
+            }
+        }
+    }
+
+    func createUserProfile(for user: User) {
+        let db = Firestore.firestore()
+        let userProfile = UserProfile(id: user.uid, email: user.email ?? "", currency: "USD")
+        do {
+            try db.collection("users").document(user.uid).setData(from: userProfile)
+            self.userProfile = userProfile
+        } catch {
+            print("Error creating user profile: \(error)")
+        }
+    }
+
+    func updateUserProfile(currency: String) {
+        guard let user = Auth.auth().currentUser else { return }
+        let db = Firestore.firestore()
+        db.collection("users").document(user.uid).updateData(["currency": currency]) { [weak self] error in
+            if let error = error {
+                print("Error updating user profile: \(error)")
+            } else {
+                self?.userProfile?.currency = currency
             }
         }
     }

@@ -16,9 +16,10 @@ struct GoalDetailView: View {
             Section(header: Text("Goal Details")) {
                 Text("Title: \(goal.title)")
                 Text("Frequency: \(goal.frequency.rawValue)")
-                Text("Amount per Success: £\(goal.amountPerSuccess, specifier: "%.2f")")
-                Text("Total Amount: £\(goal.totalAmount, specifier: "%.2f")")
-                Text("Earned Amount: £\(goal.earnedAmount, specifier: "%.2f")")
+                Text("Amount per Success: \(CurrencyHelper.format(amount: goal.amountPerSuccess, currencyCode: goal.currency ?? "USD"))")
+                Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                Text("Earned Amount: \(CurrencyHelper.format(amount: goal.earnedAmount, currencyCode: goal.currency ?? "USD"))")
+
             }
             
             Section(header: Text("Progress")) {

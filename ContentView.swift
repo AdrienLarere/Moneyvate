@@ -43,13 +43,24 @@ struct ContentView: View {
             }
     }
     
+//    private var totalEarnedBackPerCurrency: [String: Double] {
+//        var totals = [String: Double]()
+//        for goal in viewModel.goals {
+//            let currency = goal.currency ?? "USD"
+//            totals[currency, default: 0] += goal.earnedAmount
+//        }
+//        return totals
+//    }
+    
     private var mainView: some View {
         NavigationView {
             List {
-                Text("Total Earned Back: £\(viewModel.totalEarnedBack, specifier: "%.2f")")
-                    .foregroundColor(.primary)
-                    .listRowInsets(EdgeInsets(top: 25, leading: 0, bottom: 0, trailing: 0))
-                    .listRowBackground(Color.clear)
+//                ForEach(totalEarnedBackPerCurrency.keys.sorted(), id: \.self) { currency in
+//                    Text("Total Earned Back (\(currency.uppercased())): \(CurrencyHelper.format(amount: totalEarnedBackPerCurrency[currency]!, currencyCode: currency))")
+//                        .foregroundColor(.primary)
+//                }
+//                .listRowInsets(EdgeInsets(top: 25, leading: 0, bottom: 0, trailing: 0))
+//                .listRowBackground(Color.clear)
                 
                 if !currentGoals.isEmpty {
                     Section(header: Text("Current Goals")) {
@@ -81,9 +92,15 @@ struct ContentView: View {
                         userManager.signOut()
                     }
                 }
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItemGroup(placement: .bottomBar) {
                     NavigationLink(destination: AboutView()) {
                         Text("About/Contact")
+                            .foregroundColor(.blue)
+                            .font(.footnote)
+                    }
+                    Spacer()
+                    NavigationLink(destination: SettingsView()) {
+                        Image(systemName: "gearshape")
                             .foregroundColor(.blue)
                             .font(.footnote)
                     }
@@ -91,6 +108,8 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingAddGoal) {
                 AddGoalView(isPresented: $showingAddGoal)
+                    .environmentObject(viewModel)     // Pass viewModel
+                    .environmentObject(userManager)   // Pass userManager
             }
         }
     }
@@ -138,7 +157,7 @@ struct GoalRowView: View {
             VStack(alignment: .leading) {
                 Text(goal.title)
                     .font(.headline)
-                Text("£\(goal.earnedAmount, specifier: "%.2f") / £\(goal.totalAmount, specifier: "%.2f")")
+                Text("\(CurrencyHelper.format(amount: goal.earnedAmount, currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
