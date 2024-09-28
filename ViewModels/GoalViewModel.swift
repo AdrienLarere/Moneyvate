@@ -61,6 +61,8 @@ class GoalViewModel: ObservableObject {
             verificationPhotoUrl: verificationPhotoUrl,
             verifiedAt: goal.verificationMethod == .selfVerify ? date : nil
         )
+        
+        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
 
         let completionData: [String: Any] = [
             "goalId": newCompletion.goalId,
@@ -73,7 +75,7 @@ class GoalViewModel: ObservableObject {
         ]
 
         goalRef.updateData([
-            "completions.\(ISO8601DateFormatter().string(from: date))": completionData
+            "completions.\(dateString)": completionData
         ]) { [weak self] error in
             if let error = error {
                 print("Error adding completion: \(error.localizedDescription)")
@@ -84,7 +86,7 @@ class GoalViewModel: ObservableObject {
                 // Update the local goals array
                 DispatchQueue.main.async {
                     if let index = self?.goals.firstIndex(where: { $0.id == goal.id }) {
-                        self?.goals[index].completions[ISO8601DateFormatter().string(from: date)] = newCompletion
+                        self?.goals[index].completions[dateString] = newCompletion
                         self?.updateBalance()
                         self?.objectWillChange.send()
                     }
@@ -95,10 +97,13 @@ class GoalViewModel: ObservableObject {
     
     func updateCompletionStatus(for goal: Goal, on date: Date, newStatus: Completion.CompletionStatus) {
         guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+        
+        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
+        
         let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
         
         goalRef.updateData([
-            "completions.\(ISO8601DateFormatter().string(from: date)).status": newStatus.rawValue
+            "completions.\(dateString).status": newStatus.rawValue
         ]) { error in
             if let error = error {
                 print("Error updating completion status: \(error.localizedDescription)")
@@ -174,65 +179,77 @@ class GoalViewModel: ObservableObject {
         }
     }
     
-    private func checkAndUpdateMissedCompletions() {
-        guard let userId = Auth.auth().currentUser?.uid else { return }
+    func checkAndUpdateMissedCompletions(for goal: Goal, completion: @escaping () -> Void) {
+        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
         
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
         
-        let group = DispatchGroup()
-        var batchOperations: [[String: Any]] = []
-        
-        for goal in goals {
-            guard let goalId = goal.id else { continue }
-            group.enter()
+        goalRef.getDocument { [weak self] (documentSnapshot, error) in
+            if let error = error {
+                print("Error fetching goal document: \(error.localizedDescription)")
+                return
+            }
             
-            let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+            guard let document = documentSnapshot, document.exists else {
+                print("Goal document does not exist")
+                return
+            }
             
-            goalRef.getDocument { (document, error) in
-                defer { group.leave() }
-                
-                if let document = document, document.exists {
-                    for date in self.dateRange(from: goal.startDate, to: min(today, goal.endDate)) {
-                        let dateString = ISO8601DateFormatter().string(from: date)
-                        if goal.completions[dateString] == nil {
-                            let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
-                            let completionData: [String: Any] = [
-                                "goalId": missedCompletion.goalId,
-                                "date": Timestamp(date: missedCompletion.date),
-                                "status": missedCompletion.status.rawValue
-                            ]
-                            batchOperations.append([
-                                "ref": goalRef,
-                                "data": ["completions.\(dateString)": completionData]
-                            ])
-                        }
+            // Fetch the latest completions from the document
+            guard let data = document.data(),
+                  let completionsData = data["completions"] as? [String: [String: Any]] else {
+                print("No completions found in document")
+                return
+            }
+            
+            var completions = goal.completions
+            for (dateString, _) in completionsData {
+                if completions[dateString] == nil {
+                    // Parse the completion data and add it to the local completions dictionary
+                    if let completionData = completionsData[dateString],
+                       let completion = Completion(from: completionData) {
+                        completions[dateString] = completion
                     }
-                } else {
-                    print("Document does not exist: \(goalId)")
                 }
             }
-        }
-        
-        group.notify(queue: .main) {
-            if !batchOperations.isEmpty {
-                let batch = self.db.batch()
-                for operation in batchOperations {
-                    if let ref = operation["ref"] as? DocumentReference,
-                       let data = operation["data"] as? [String: Any] {
-                        batch.updateData(data, forDocument: ref)
-                    }
+            
+            // Determine which dates are missed
+            var batchUpdates: [String: Any] = [:]
+            for date in self?.dateRange(from: goal.startDate, to: min(today, goal.endDate)) ?? [] {
+                let dateString = DateFormatterHelper.shared.string(from: date)
+                if completions[dateString] == nil {
+                    // No completion exists for this date; mark as missed
+                    let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
+                    let completionData: [String: Any] = [
+                        "goalId": missedCompletion.goalId,
+                        "date": Timestamp(date: missedCompletion.date),
+                        "status": missedCompletion.status.rawValue
+                    ]
+                    batchUpdates["completions.\(dateString)"] = completionData
+                    // Update the local completions dictionary
+                    completions[dateString] = missedCompletion
                 }
-                
-                batch.commit { error in
+            }
+            
+            if !batchUpdates.isEmpty {
+                // Update the database
+                goalRef.updateData(batchUpdates) { error in
                     if let error = error {
-                        print("Error updating missed completions: \(error)")
+                        print("Error updating missed completions: \(error.localizedDescription)")
                     } else {
-                        print("Successfully updated missed completions for \(batchOperations.count) operations")
+                        print("Missed completions updated successfully")
+                        // Update the local goal object
+                        if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
+                            self?.goals[index].completions = completions
+                            self?.objectWillChange.send()
+                        }
+                        completion()
                     }
                 }
             } else {
-                print("No goals to update")
+                print("No missed completions to update for goal \(goalId)")
             }
         }
     }
@@ -258,7 +275,7 @@ class GoalViewModel: ObservableObject {
         }
 
         let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
-        let dateString = ISO8601DateFormatter().string(from: date)
+        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
 
         // First, check if the completion exists and is verified
         goalRef.getDocument { [weak self] (document, error) in
@@ -413,5 +430,24 @@ class GoalViewModel: ObservableObject {
     
     deinit {
         listenerRegistration?.remove()
+    }
+}
+
+// Helper function to parse Completion from Firestore data
+extension Completion {
+    init?(from data: [String: Any]) {
+        guard let goalId = data["goalId"] as? String,
+              let timestamp = data["date"] as? Timestamp,
+              let statusRaw = data["status"] as? String,
+              let status = CompletionStatus(rawValue: statusRaw) else {
+            return nil
+        }
+        
+        self.goalId = goalId
+        self.date = timestamp.dateValue()
+        self.status = status
+        self.verificationPhotoUrl = data["verificationPhotoUrl"] as? String
+        self.verifiedAt = (data["verifiedAt"] as? Timestamp)?.dateValue()
+        self.refundedAt = (data["refundedAt"] as? Timestamp)?.dateValue()
     }
 }

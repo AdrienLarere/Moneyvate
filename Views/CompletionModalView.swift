@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseStorage
 import FirebaseFirestore
+import Foundation
 
 struct CompletionModalView: View {
     @Environment(\.presentationMode) var presentationMode
@@ -108,7 +109,8 @@ struct CompletionModalView: View {
         
         // Optimistically update local state
         let newCompletion = Completion(goalId: goal.id!, date: date, status: .verified)
-        goal.completions[ISO8601DateFormatter().string(from: date)] = newCompletion
+        let dateString = DateFormatterHelper.shared.string(from: date)
+        goal.completions[dateString] = newCompletion
 
         viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
         

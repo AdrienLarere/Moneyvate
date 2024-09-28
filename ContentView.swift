@@ -123,30 +123,38 @@ struct ContentView: View {
     }
     
     private var currentGoals: [Goal] {
-        let now = Date()
-        let today = Calendar.current.startOfDay(for: now)
-        let currentGoals = viewModel.goals
+        let today = Calendar.current.startOfDay(for: Date())
+        return viewModel.goals
             .filter { goal in
-                let isCurrentGoal = goal.startDate <= now && goal.endDate >= today
+                let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
+                let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
+                let isCurrentGoal = goalStartDate <= today && goalEndDate >= today
                 return isCurrentGoal
             }
             .sorted { $0.startDate < $1.startDate }
-        return currentGoals
     }
 
     private var futureGoals: [Goal] {
-        let now = Date()
+        let today = Calendar.current.startOfDay(for: Date())
         return viewModel.goals
-            .filter { $0.startDate > now }
+            .filter {
+                let goalStartDate = Calendar.current.startOfDay(for: $0.startDate)
+                return goalStartDate > today
+            }
             .sorted { $0.startDate < $1.startDate }
     }
 
+
     private var pastGoals: [Goal] {
-        let now = Date()
+        let today = Calendar.current.startOfDay(for: Date())
         return viewModel.goals
-            .filter { $0.endDate < now }
+            .filter {
+                let goalEndDate = Calendar.current.startOfDay(for: $0.endDate)
+                return goalEndDate < today
+            }
             .sorted { $0.startDate < $1.startDate }
     }
+
 }
 
 struct GoalRowView: View {
@@ -178,7 +186,7 @@ struct GoalRowView: View {
     private var shouldShowNotificationDot: Bool {
         let now = Date()
         let today = Calendar.current.startOfDay(for: now)
-        let isActiveGoal = goal.startDate <= now && goal.endDate >= today
+        let isActiveGoal = goal.startDate <= today && goal.endDate >= today
 
         if !isActiveGoal {
             return false

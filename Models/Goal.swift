@@ -63,20 +63,18 @@ struct Goal: Identifiable, Codable {
     
     var completionDates: [Date: Completion] {
         get {
-            let dateFormatter = ISO8601DateFormatter()
             return Dictionary(uniqueKeysWithValues: completions.compactMap { key, value in
-                guard let date = dateFormatter.date(from: key) else { return nil }
+                guard let date = DateFormatterHelper.shared.date(from: key) else { return nil }
                 return (date, value)
             })
         }
         set {
-            let dateFormatter = ISO8601DateFormatter()
-            completions = Dictionary(uniqueKeysWithValues: newValue.map { (dateFormatter.string(from: $0.key), $0.value) })
+            completions = Dictionary(uniqueKeysWithValues: newValue.map { (DateFormatterHelper.shared.string(from: $0.key), $0.value) })
         }
     }
     
     var completedCompletionsCount: Int {
-        completions.values.filter { $0.status == .verified }.count
+        completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
     }
     
     func hasCompletionForToday() -> Bool {
@@ -90,7 +88,8 @@ struct Goal: Identifiable, Codable {
 
 extension Goal {
     var numberOfDays: Int {
-        Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+        let days = Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+        return days + 1
     }
     
     var requiredCompletions: Int {

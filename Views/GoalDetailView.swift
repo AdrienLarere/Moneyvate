@@ -33,7 +33,11 @@ struct GoalDetailView: View {
             }
         }
         .navigationTitle(goal.title)
-        .onAppear(perform: refreshGoal)
+        .onAppear {
+            viewModel.checkAndUpdateMissedCompletions(for: goal) {
+                refreshGoal()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             refreshGoal()
         }
@@ -58,7 +62,7 @@ struct GoalDetailView: View {
     }
     
     private func completionStatusView(for date: Date) -> some View {
-        let dateString = ISO8601DateFormatter().string(from: date)
+        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
         
         if let completion = goal.completions[dateString] {
             return AnyView(completionStatusText(for: completion))
@@ -81,6 +85,7 @@ struct GoalDetailView: View {
     }
 
     private func completionStatusText(for completion: Completion) -> some View {
+        print("Generating status text for completion. Status: \(completion.status)")
         switch completion.status {
         case .pendingVerification:
             return Text("Pending Verification").italic().foregroundColor(.gray)
@@ -100,7 +105,8 @@ struct GoalDetailView: View {
     private func canCompleteForDate(_ date: Date) -> Bool {
         let today = Calendar.current.startOfDay(for: Date())
         let isToday = Calendar.current.isDate(date, inSameDayAs: today)
-        let hasNoCompletion = goal.completionDates[date] == nil
+        let dateString = DateFormatterHelper.shared.string(from: date)
+        let hasNoCompletion = goal.completions[dateString] == nil
 
         switch goal.frequency {
         case .daily:
@@ -110,25 +116,32 @@ struct GoalDetailView: View {
         case .weekends:
             return isToday && Calendar.current.isDateInWeekend(date) && hasNoCompletion
         case .xDays:
-            let completedCount = goal.completions.values.filter { $0.status == .verified }.count
+            let completedCount = goal.completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
             return isToday && completedCount < goal.requiredCompletions && hasNoCompletion
         }
     }
     
     private func getDateRange() -> [Date] {
-        guard let days = Calendar.current.dateComponents([.day], from: goal.startDate, to: goal.endDate).day else {
+        let calendar = Calendar.current
+
+        let startDate = calendar.startOfDay(for: goal.startDate)
+        let endDate = calendar.startOfDay(for: goal.endDate)
+
+        guard let days = calendar.dateComponents([.day], from: startDate, to: endDate).day else {
             return []
         }
-        
-        let allDates = (0...days).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: goal.startDate) }
-        
+
+        let totalDays = days + 1
+
+        let allDates = (0..<totalDays).compactMap { calendar.date(byAdding: .day, value: $0, to: startDate) }
+
         switch goal.frequency {
         case .daily, .xDays:
             return allDates
         case .weekdays:
-            return allDates.filter { !Calendar.current.isDateInWeekend($0) }
+            return allDates.filter { !calendar.isDateInWeekend($0) }
         case .weekends:
-            return allDates.filter { Calendar.current.isDateInWeekend($0) }
+            return allDates.filter { calendar.isDateInWeekend($0) }
         }
     }
     
@@ -149,8 +162,6 @@ struct GoalDetailView: View {
     private func refreshGoal() {
         if let goalId = goal.id, let updatedGoal = viewModel.getGoal(withId: goalId) {
             self.goal = updatedGoal
-            // Update the goal in the viewModel
-            viewModel.updateGoal(updatedGoal)
         }
     }
 }
