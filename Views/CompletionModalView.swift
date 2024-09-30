@@ -107,6 +107,10 @@ struct CompletionModalView: View {
         isUploading = true
         errorMessage = nil
         
+        // Debugging
+        print("Adding completion for date: \(date)")
+        print("Date string: \(DateFormatterHelper.shared.string(from: date))")
+        
         // Optimistically update local state
         let newCompletion = Completion(goalId: goal.id!, date: date, status: .verified)
         let dateString = DateFormatterHelper.shared.string(from: date)

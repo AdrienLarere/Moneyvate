@@ -184,15 +184,19 @@ struct GoalRowView: View {
     }
     
     private var shouldShowNotificationDot: Bool {
-        let now = Date()
-        let today = Calendar.current.startOfDay(for: now)
-        let isActiveGoal = goal.startDate <= today && goal.endDate >= today
+        let today = Calendar.current.startOfDay(for: Date())
+        let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
+        let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
+        let isActiveGoal = goalStartDate <= today && goalEndDate >= today
 
         if !isActiveGoal {
             return false
         }
         
-        let todayCompletions = goal.completions.values.filter { Calendar.current.isDate($0.date, inSameDayAs: today) }
+        let todayCompletions = goal.completions.values.filter { completion in
+            let completionDate = Calendar.current.startOfDay(for: completion.date)
+            return completionDate == today
+        }
         
         let hasValidCompletionToday = todayCompletions.contains { completion in
             completion.status == .verified || completion.status == .refunded || completion.status == .pendingVerification

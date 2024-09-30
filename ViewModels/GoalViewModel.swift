@@ -189,11 +189,13 @@ class GoalViewModel: ObservableObject {
         goalRef.getDocument { [weak self] (documentSnapshot, error) in
             if let error = error {
                 print("Error fetching goal document: \(error.localizedDescription)")
+                completion()
                 return
             }
             
             guard let document = documentSnapshot, document.exists else {
                 print("Goal document does not exist")
+                completion()
                 return
             }
             
@@ -201,6 +203,7 @@ class GoalViewModel: ObservableObject {
             guard let data = document.data(),
                   let completionsData = data["completions"] as? [String: [String: Any]] else {
                 print("No completions found in document")
+                completion()
                 return
             }
             
@@ -217,19 +220,29 @@ class GoalViewModel: ObservableObject {
             
             // Determine which dates are missed
             var batchUpdates: [String: Any] = [:]
-            for date in self?.dateRange(from: goal.startDate, to: min(today, goal.endDate)) ?? [] {
-                let dateString = DateFormatterHelper.shared.string(from: date)
-                if completions[dateString] == nil {
-                    // No completion exists for this date; mark as missed
-                    let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
-                    let completionData: [String: Any] = [
-                        "goalId": missedCompletion.goalId,
-                        "date": Timestamp(date: missedCompletion.date),
-                        "status": missedCompletion.status.rawValue
-                    ]
-                    batchUpdates["completions.\(dateString)"] = completionData
-                    // Update the local completions dictionary
-                    completions[dateString] = missedCompletion
+            
+            // Normalize dates
+            let goalStartDate = calendar.startOfDay(for: goal.startDate)
+            let goalEndDate = calendar.startOfDay(for: goal.endDate)
+            let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+            let endDateForMissed = min(yesterday, goalEndDate)
+            
+            // Only proceed if goalStartDate <= endDateForMissed
+            if goalStartDate <= endDateForMissed {
+                for date in self?.dateRange(from: goalStartDate, to: endDateForMissed) ?? [] {
+                    let dateString = DateFormatterHelper.shared.string(from: date)
+                    if completions[dateString] == nil {
+                        // No completion exists for this date; mark as missed
+                        let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
+                        let completionData: [String: Any] = [
+                            "goalId": missedCompletion.goalId,
+                            "date": Timestamp(date: missedCompletion.date),
+                            "status": missedCompletion.status.rawValue
+                        ]
+                        batchUpdates["completions.\(dateString)"] = completionData
+                        // Update the local completions dictionary
+                        completions[dateString] = missedCompletion
+                    }
                 }
             }
             
@@ -245,11 +258,12 @@ class GoalViewModel: ObservableObject {
                             self?.goals[index].completions = completions
                             self?.objectWillChange.send()
                         }
-                        completion()
                     }
+                    completion()
                 }
             } else {
                 print("No missed completions to update for goal \(goalId)")
+                completion()
             }
         }
     }
