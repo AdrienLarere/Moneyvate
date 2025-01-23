@@ -43,24 +43,9 @@ struct ContentView: View {
             }
     }
     
-//    private var totalEarnedBackPerCurrency: [String: Double] {
-//        var totals = [String: Double]()
-//        for goal in viewModel.goals {
-//            let currency = goal.currency ?? "USD"
-//            totals[currency, default: 0] += goal.earnedAmount
-//        }
-//        return totals
-//    }
-    
     private var mainView: some View {
         NavigationView {
             List {
-//                ForEach(totalEarnedBackPerCurrency.keys.sorted(), id: \.self) { currency in
-//                    Text("Total Earned Back (\(currency.uppercased())): \(CurrencyHelper.format(amount: totalEarnedBackPerCurrency[currency]!, currencyCode: currency))")
-//                        .foregroundColor(.primary)
-//                }
-//                .listRowInsets(EdgeInsets(top: 25, leading: 0, bottom: 0, trailing: 0))
-//                .listRowBackground(Color.clear)
                 
                 if !currentGoals.isEmpty {
                     Section(header: Text("Current Goals")) {
@@ -117,7 +102,7 @@ struct ContentView: View {
     private func goalList(goals: [Goal]) -> some View {
         ForEach(goals) { goal in
             NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: goal)) {
-                GoalRowView(goal: goal)
+                GoalRowView(goal: goal, viewModel: viewModel)
             }
         }
     }
@@ -159,15 +144,19 @@ struct ContentView: View {
 
 struct GoalRowView: View {
     let goal: Goal
+    @ObservedObject var viewModel: GoalViewModel
     
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
                 Text(goal.title)
                     .font(.headline)
-                Text("\(CurrencyHelper.format(amount: goal.earnedAmount, currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                
+                // Show how much earned vs total
+                Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+
             }
             Spacer()
             VStack(alignment: .trailing) {
@@ -183,45 +172,50 @@ struct GoalRowView: View {
         }
     }
     
+    private var completedCompletionsCount: Int {
+        // Filter sub-collection completions
+        guard let goalId = goal.id,
+              let completions = viewModel.completionsByGoal[goalId] else {
+            return 0
+        }
+        return completions.filter { $0.status == .verified || $0.status == .refunded }.count
+    }
+
     private var shouldShowNotificationDot: Bool {
         let today = Calendar.current.startOfDay(for: Date())
         let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
         let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
         let isActiveGoal = goalStartDate <= today && goalEndDate >= today
+        if !isActiveGoal { return false }
 
-        if !isActiveGoal {
+        // Get all completions for this goal from the VM
+        guard let goalId = goal.id,
+              let completions = viewModel.completionsByGoal[goalId] else {
             return false
         }
-        
-        let todayCompletions = goal.completions.values.filter { completion in
-            let completionDate = Calendar.current.startOfDay(for: completion.date)
-            return completionDate == today
-        }
-        
-        let hasValidCompletionToday = todayCompletions.contains { completion in
-            completion.status == .verified || completion.status == .refunded || completion.status == .pendingVerification
+        let todayCompletions = completions.filter {
+            Calendar.current.isDate($0.date, inSameDayAs: today)
         }
 
-        let shouldShow: Bool
+        let hasValidCompletionToday = todayCompletions.contains {
+            [.verified, .refunded, .pendingVerification].contains($0.status)
+        }
+
         switch goal.frequency {
         case .daily:
-            shouldShow = !hasValidCompletionToday
+            return !hasValidCompletionToday
         case .xDays:
-            let completedCount = goal.completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
-            shouldShow = completedCount < goal.requiredCompletions && !hasValidCompletionToday
+            let completedCount = completions.filter {
+                $0.status == .verified || $0.status == .refunded
+            }.count
+            return (completedCount < goal.requiredCompletions) && !hasValidCompletionToday
         case .weekdays:
             let isWeekday = !Calendar.current.isDateInWeekend(today)
-            shouldShow = isWeekday && !hasValidCompletionToday
+            return isWeekday && !hasValidCompletionToday
         case .weekends:
             let isWeekend = Calendar.current.isDateInWeekend(today)
-            shouldShow = isWeekend && !hasValidCompletionToday
+            return isWeekend && !hasValidCompletionToday
         }
-        
-        return shouldShow
-    }
-    
-    private var completedCompletionsCount: Int {
-        goal.completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
     }
 }
 

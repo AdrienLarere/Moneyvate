@@ -11,10 +11,9 @@ struct Goal: Identifiable, Codable {
     var endDate: Date
     var totalAmount: Double
     var verificationMethod: VerificationMethod
-    var paymentIntentId: String? // New field to store Payment Intent ID
-    var completions: [String: Completion] = [:]
+    var paymentIntentId: String?
     var currency: String?
-    
+
     enum Frequency: String, Codable, CaseIterable, Identifiable {
         case daily = "Every day"
         case xDays = "X days over the period"
@@ -31,8 +30,10 @@ struct Goal: Identifiable, Codable {
         var id: String { self.rawValue }
     }
     
+    // Only list the fields that actually exist on the Goal doc
     enum CodingKeys: String, CodingKey {
-        case id, userId, title, frequency, amountPerSuccess, startDate, endDate, totalAmount, verificationMethod, paymentIntentId, completions, currency
+        case id, userId, title, frequency, amountPerSuccess, startDate, endDate,
+             totalAmount, verificationMethod, paymentIntentId, currency
     }
 
     init(id: String? = nil,
@@ -45,8 +46,8 @@ struct Goal: Identifiable, Codable {
          totalAmount: Double,
          verificationMethod: VerificationMethod,
          currency: String?,
-         paymentIntentId: String? = nil,
-         completions: [String: Completion] = [:]) {
+         paymentIntentId: String? = nil) {
+        
         self.id = id
         self.userId = userId
         self.title = title
@@ -56,56 +57,32 @@ struct Goal: Identifiable, Codable {
         self.endDate = endDate
         self.totalAmount = totalAmount
         self.verificationMethod = verificationMethod
-        self.currency = currency // Assign currency
+        self.currency = currency
         self.paymentIntentId = paymentIntentId
-        self.completions = completions
-    }
-    
-    var completionDates: [Date: Completion] {
-        get {
-            return Dictionary(uniqueKeysWithValues: completions.compactMap { key, value in
-                guard let date = DateFormatterHelper.shared.date(from: key) else { return nil }
-                return (date, value)
-            })
-        }
-        set {
-            completions = Dictionary(uniqueKeysWithValues: newValue.map { (DateFormatterHelper.shared.string(from: $0.key), $0.value) })
-        }
-    }
-    
-    var completedCompletionsCount: Int {
-        completions.values.filter { $0.status == .verified || $0.status == .refunded }.count
-    }
-    
-    func hasCompletionForToday() -> Bool {
-        let today = Calendar.current.startOfDay(for: Date())
-        return completions.values.contains { completion in
-            Calendar.current.isDate(completion.date, inSameDayAs: today) &&
-            (completion.status == .verified || completion.status == .pendingVerification)
-        }
     }
 }
 
+// MARK: - Computed Properties
 extension Goal {
+    /// The total count of days from start to end
     var numberOfDays: Int {
         let days = Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
         return days + 1
     }
     
+    /// How many completions are required by frequency
     var requiredCompletions: Int {
         switch frequency {
         case .daily:
             return numberOfDays
         case .xDays:
+            // If you want "X" to be determined by totalAmount / amountPerSuccess
+            // (or you can store X directly in the goal if you prefer).
             return min(numberOfDays, Int(totalAmount / amountPerSuccess))
         case .weekdays:
             return Calendar.current.weekdaySymbols.filter { !["Saturday", "Sunday"].contains($0) }.count
         case .weekends:
             return Calendar.current.weekdaySymbols.filter { ["Saturday", "Sunday"].contains($0) }.count
         }
-    }
-    
-    var earnedAmount: Double {
-        Double(completions.values.filter { $0.status == .refunded }.count) * amountPerSuccess
     }
 }

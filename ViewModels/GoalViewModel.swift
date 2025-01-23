@@ -5,12 +5,15 @@ import FirebaseAuth
 class GoalViewModel: ObservableObject {
     @Published var goals: [Goal] = []
     @Published var balance: Double = 0
+    @Published var completionsByGoal: [String: [Completion]] = [:]
 
     private var db = Firestore.firestore()
     private var listenerRegistration: ListenerRegistration?
     
     var totalEarnedBack: Double {
-        goals.reduce(0) { $0 + $1.earnedAmount }
+        goals.reduce(0.0) { partial, goal in
+            partial + earnedAmount(for: goal)
+        }
     }
 
     init() {
@@ -18,82 +21,139 @@ class GoalViewModel: ObservableObject {
     }
     
     func addGoal(title: String,
-         frequency: Goal.Frequency,
-         amountPerSuccess: Double,
-         startDate: Date,
-         endDate: Date,
-         requiredCompletions: Int,
-         verificationMethod: Goal.VerificationMethod,
-         currency: String, // Add currency parameter
-         paymentIntentId: String?) {  // Add paymentIntentId as an optional parameter
+                 frequency: Goal.Frequency,
+                 amountPerSuccess: Double,
+                 startDate: Date,
+                 endDate: Date,
+                 requiredCompletions: Int,
+                 verificationMethod: Goal.VerificationMethod,
+                 currency: String,
+                 paymentIntentId: String?) {
 
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
         guard let userId = Auth.auth().currentUser?.uid else { return }
 
-        let newGoal = Goal(id: nil,
-           userId: userId,
-           title: title,
-           frequency: frequency,
-           amountPerSuccess: amountPerSuccess,
-           startDate: startDate,
-           endDate: endDate,
-           totalAmount: totalAmount,
-           verificationMethod: verificationMethod,
-           currency: currency, // Add currency parameter
-           paymentIntentId: paymentIntentId) // Add paymentIntentId to the goal
-
+        let newGoal = Goal(
+            id: nil,
+            userId: userId,
+            title: title,
+            frequency: frequency,
+            amountPerSuccess: amountPerSuccess,
+            startDate: startDate,
+            endDate: endDate,
+            totalAmount: totalAmount,
+            verificationMethod: verificationMethod,
+            currency: currency,
+            paymentIntentId: paymentIntentId
+        )
+        
         do {
-            try db.collection("users").document(userId).collection("goals").addDocument(from: newGoal)
+            // 1) Add the goal doc
+            let goalRef = try db.collection("users")
+                .document(userId)
+                .collection("goals")
+                .addDocument(from: newGoal)
+            
+            // 2) Retrieve the newly created doc's ID
+            let docId = goalRef.documentID
+            print("Successfully created goal doc with ID: \(docId)")
+            
+            // 3) Immediately create the sub-collection docs
+            createInitialCompletions(
+                userId: userId,
+                goalId: docId,
+                frequency: frequency,
+                startDate: startDate,
+                endDate: endDate,
+                amountPerSuccess: amountPerSuccess,
+                requiredCompletions: requiredCompletions,
+                verificationMethod: verificationMethod
+            )
+            
         } catch {
             print("Error adding goal: \(error.localizedDescription)")
         }
     }
+
     
     func addCompletion(for goal: Goal, on date: Date, verificationPhotoUrl: String? = nil) {
-        print("Goal before update: \(goal)")
-        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
-        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        guard let userId = Auth.auth().currentUser?.uid,
+              let goalId = goal.id else { return }
 
-        let newCompletion = Completion(
-            goalId: goalId,
-            date: date,
-            status: goal.verificationMethod == .selfVerify ? .verified : .pendingVerification,
-            verificationPhotoUrl: verificationPhotoUrl,
-            verifiedAt: goal.verificationMethod == .selfVerify ? date : nil
-        )
+        let completionsRef = db.collection("users")
+                               .document(userId)
+                               .collection("goals")
+                               .document(goalId)
+                               .collection("completions")
+
+        // 1) Query the sub-collection for a doc with the matching date
+        //    (or we can store the docID as a string of the date, or just query with a whereField).
+        // Create the "YYYY-MM-dd" string for the query
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dayString = dateFormatter.string(from: date)
         
-        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
+        completionsRef
+            .whereField("dateString", isEqualTo: dayString)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("Error fetching completion docs: \(error)")
+                    return
+                }
 
-        let completionData: [String: Any] = [
-            "goalId": newCompletion.goalId,
-            "date": Timestamp(date: newCompletion.date),
-            "status": newCompletion.status.rawValue,
-            "verificationPhotoUrl": newCompletion.verificationPhotoUrl as Any,
-            "verifiedAt": newCompletion.verifiedAt.map { Timestamp(date: $0) } as Any,
-            "refundedAt": newCompletion.refundedAt.map { Timestamp(date: $0) } as Any,
-            "updatedAt": FieldValue.serverTimestamp()
-        ]
+                guard let doc = snapshot?.documents.first else {
+                    print("No existing completion doc for that date—create one now or fail out.")
+                    return
+                }
 
-        goalRef.updateData([
-            "completions.\(dateString)": completionData
-        ]) { [weak self] error in
-            if let error = error {
-                print("Error adding completion: \(error.localizedDescription)")
-            } else {
-                print("Completion added successfully")
-                print("Updated goal: \(goal.title), Date: \(date), Status: \(newCompletion.status)")
-                
-                // Update the local goals array
-                DispatchQueue.main.async {
-                    if let index = self?.goals.firstIndex(where: { $0.id == goal.id }) {
-                        self?.goals[index].completions[dateString] = newCompletion
-                        self?.updateBalance()
-                        self?.objectWillChange.send()
+                // 2) Update the status to .verified or .pendingVerification
+                let completionDocRef = completionsRef.document(doc.documentID)
+                let newStatus: Completion.CompletionStatus = (goal.verificationMethod == .selfVerify) ? .verified : .pendingVerification
+                completionDocRef.updateData([
+                    "status" : newStatus.rawValue,
+                    "verificationPhotoUrl": verificationPhotoUrl ?? NSNull(),
+                    "verifiedAt": (newStatus == .verified) ? Timestamp(date: Date()) : NSNull()
+                ]) { err in
+                    if let err = err {
+                        print("Error updating completion doc: \(err)")
+                    } else {
+                        print("Completion updated for date \(date).")
                     }
                 }
             }
-        }
     }
+    
+    func fetchCompletions(for goal: Goal) {
+        guard let userId = Auth.auth().currentUser?.uid,
+              let goalId = goal.id else { return }
+        
+        db.collection("users")
+          .document(userId)
+          .collection("goals")
+          .document(goalId)
+          .collection("completions")
+          .addSnapshotListener { [weak self] snapshot, error in
+              if let error = error {
+                  print("Error fetching completions: \(error)")
+                  return
+              }
+              guard let documents = snapshot?.documents else { return }
+              
+              // Convert each Firestore document into a Completion model
+              let completions = documents.compactMap { doc -> Completion? in
+                  return try? doc.data(as: Completion.self)
+              }
+              
+              // Sort by date if you want them in chronological order
+              let sortedCompletions = completions.sorted { $0.date < $1.date }
+              
+              // Store them in the dictionary
+              DispatchQueue.main.async {
+                  self?.completionsByGoal[goalId] = sortedCompletions
+              }
+          }
+    }
+
     
     func updateCompletionStatus(for goal: Goal, on date: Date, newStatus: Completion.CompletionStatus) {
         guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
@@ -111,6 +171,68 @@ class GoalViewModel: ObservableObject {
         }
     }
     
+    func markMissedCompletions(for goal: Goal, completion: @escaping () -> Void = {}) {
+        guard let userId = Auth.auth().currentUser?.uid,
+              let goalId = goal.id else {
+            completion()
+            return
+        }
+        
+        let completionsRef = db.collection("users")
+            .document(userId)
+            .collection("goals")
+            .document(goalId)
+            .collection("completions")
+        
+        let today = Calendar.current.startOfDay(for: Date())
+        
+        completionsRef.getDocuments { [weak self] (snapshot, error) in
+            if let error = error {
+                print("Error fetching completions for missed-check: \(error)")
+                completion()
+                return
+            }
+            guard let documents = snapshot?.documents else {
+                completion()
+                return
+            }
+
+            var docsToUpdate: [DocumentReference] = []
+            
+            // Use 'try?' so it returns nil (instead of throwing) if decoding fails
+            for doc in documents {
+                if let completionObj = try? doc.data(as: Completion.self) {
+                    // If date < today and status == .pendingVerification => mark missed
+                    if completionObj.date < today,
+                       completionObj.status == .pendingVerification {
+                        docsToUpdate.append(doc.reference)
+                    }
+                }
+            }
+            
+            guard let self = self, !docsToUpdate.isEmpty else {
+                print("No completions need to be marked missed for goal \(goalId).")
+                completion()
+                return
+            }
+            
+            // Batch update to set 'status' => 'missed'
+            let batch = self.db.batch()
+            for ref in docsToUpdate {
+                batch.updateData(["status": Completion.CompletionStatus.missed.rawValue], forDocument: ref)
+            }
+            batch.commit { batchError in
+                if let batchError = batchError {
+                    print("Error marking missed completions in batch: \(batchError)")
+                } else {
+                    print("Successfully marked \(docsToUpdate.count) completions as missed for goal \(goalId).")
+                }
+                completion()
+            }
+        }
+    }
+
+    
     func fetchGoals() {
         guard let userId = Auth.auth().currentUser?.uid else { return }
         
@@ -123,11 +245,11 @@ class GoalViewModel: ObservableObject {
                     return
                 }
                 
-                if snapshot.metadata.isFromCache {
-                    print("Data came from cache")
-                } else {
-                    print("Data came from server")
-                }
+//                if snapshot.metadata.isFromCache {
+//                    print("Data came from cache")
+//                } else {
+//                    print("Data came from server")
+//                }
                 
                 let documents = snapshot.documents
                 
@@ -153,12 +275,6 @@ class GoalViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self?.goals = newGoals
                     self?.updateBalance()
-
-                    // Debug: Print currencies of all goals
-                    for goal in newGoals {
-                        print("Goal ID: \(goal.id ?? "unknown"), Currency: \(goal.currency ?? "nil")")
-                    }
-
                     self?.objectWillChange.send()
                 }
             }
@@ -179,94 +295,115 @@ class GoalViewModel: ObservableObject {
         }
     }
     
-    func checkAndUpdateMissedCompletions(for goal: Goal, completion: @escaping () -> Void) {
-        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id else { return }
+    private func createInitialCompletions(userId: String,
+                                          goalId: String,
+                                          frequency: Goal.Frequency,
+                                          startDate: Date,
+                                          endDate: Date,
+                                          amountPerSuccess: Double,
+                                          requiredCompletions: Int,
+                                          verificationMethod: Goal.VerificationMethod) {
+
+        let completionDates = self.calculateCompletionDates(
+            frequency: frequency,
+            startDate: startDate,
+            endDate: endDate,
+            requiredCompletions: requiredCompletions
+        )
+
+        let completionsRef = db.collection("users")
+                               .document(userId)
+                               .collection("goals")
+                               .document(goalId)
+                               .collection("completions")
         
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
-        
-        goalRef.getDocument { [weak self] (documentSnapshot, error) in
-            if let error = error {
-                print("Error fetching goal document: \(error.localizedDescription)")
-                completion()
-                return
-            }
+        let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+
+        for date in completionDates {
+            let dayString = formatter.string(from: date)
             
-            guard let document = documentSnapshot, document.exists else {
-                print("Goal document does not exist")
-                completion()
-                return
-            }
-            
-            // Fetch the latest completions from the document
-            guard let data = document.data(),
-                  let completionsData = data["completions"] as? [String: [String: Any]] else {
-                print("No completions found in document")
-                completion()
-                return
-            }
-            
-            var completions = goal.completions
-            for (dateString, _) in completionsData {
-                if completions[dateString] == nil {
-                    // Parse the completion data and add it to the local completions dictionary
-                    if let completionData = completionsData[dateString],
-                       let completion = Completion(from: completionData) {
-                        completions[dateString] = completion
-                    }
-                }
-            }
-            
-            // Determine which dates are missed
-            var batchUpdates: [String: Any] = [:]
-            
-            // Normalize dates
-            let goalStartDate = calendar.startOfDay(for: goal.startDate)
-            let goalEndDate = calendar.startOfDay(for: goal.endDate)
-            let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
-            let endDateForMissed = min(yesterday, goalEndDate)
-            
-            // Only proceed if goalStartDate <= endDateForMissed
-            if goalStartDate <= endDateForMissed {
-                for date in self?.dateRange(from: goalStartDate, to: endDateForMissed) ?? [] {
-                    let dateString = DateFormatterHelper.shared.string(from: date)
-                    if completions[dateString] == nil {
-                        // No completion exists for this date; mark as missed
-                        let missedCompletion = Completion(goalId: goalId, date: date, status: .missed)
-                        let completionData: [String: Any] = [
-                            "goalId": missedCompletion.goalId,
-                            "date": Timestamp(date: missedCompletion.date),
-                            "status": missedCompletion.status.rawValue
-                        ]
-                        batchUpdates["completions.\(dateString)"] = completionData
-                        // Update the local completions dictionary
-                        completions[dateString] = missedCompletion
-                    }
-                }
-            }
-            
-            if !batchUpdates.isEmpty {
-                // Update the database
-                goalRef.updateData(batchUpdates) { error in
-                    if let error = error {
-                        print("Error updating missed completions: \(error.localizedDescription)")
-                    } else {
-                        print("Missed completions updated successfully")
-                        // Update the local goal object
-                        if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
-                            self?.goals[index].completions = completions
-                            self?.objectWillChange.send()
-                        }
-                    }
-                    completion()
-                }
-            } else {
-                print("No missed completions to update for goal \(goalId)")
-                completion()
+            let newCompletion = Completion(
+                goalId: goalId,
+                date: date,
+                dateString: dayString,
+                status: date < Calendar.current.startOfDay(for: Date()) ? .missed : .pendingVerification,
+                verificationPhotoUrl: nil,
+                verifiedAt: nil,
+                refundedAt: nil
+            )
+
+            do {
+                let _ = try completionsRef.addDocument(from: newCompletion)
+                print("Added completion doc for \(dayString) in goalId = \(goalId)")
+                print(">>> Storing doc with dateString:", dayString)
+            } catch {
+                print("Error creating completion doc for date \(date): \(error)")
             }
         }
+        print("Created \(completionDates.count) completion docs for goalId=\(goalId).")
     }
+
+    
+    private func calculateCompletionDates(frequency: Goal.Frequency,
+                                          startDate: Date,
+                                          endDate: Date,
+                                          requiredCompletions: Int) -> [Date] {
+
+        var dates: [Date] = []
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+
+        switch frequency {
+        case .daily:
+            // All days from start to end
+            var day = start
+            while day <= end {
+                dates.append(day)
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+            }
+        case .weekdays:
+            var day = start
+            while day <= end {
+                let weekday = calendar.component(.weekday, from: day)
+                // Sunday = 1, Monday = 2, ... Saturday = 7
+                if weekday >= 2 && weekday <= 6 { // Monday=2 .. Friday=6
+                    dates.append(day)
+                }
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+            }
+        case .weekends:
+            var day = start
+            while day <= end {
+                let weekday = calendar.component(.weekday, from: day)
+                // weekend if Sunday=1 or Saturday=7
+                if weekday == 1 || weekday == 7 {
+                    dates.append(day)
+                }
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+            }
+        case .xDays:
+            // Option 1: If you want to create *all* days, letting user choose any X to complete
+            // This is simpler for data structure. We just create them all, but only "X" are needed.
+            // The user gets refunds for whichever X days they verify.
+            // If you actually want to limit doc creation to exactly X random days, you'd need logic to pick which days.
+            // But typically we'd create all days, then only allow X refunds in total.
+
+            var allDays: [Date] = []
+            var day = start
+            while day <= end {
+                allDays.append(day)
+                day = calendar.date(byAdding: .day, value: 1, to: day)!
+            }
+            // We'll return allDays. The "X" limit is enforced by your business logic (only X can be refunded).
+            // If you *really* want to pre-select exactly X docs, you can do so here, but it's more complex.
+            dates = allDays
+        }
+
+        return dates
+    }
+
     
     // Custom function to generate date range
     private func dateRange(from: Date, to: Date) -> [Date] {
@@ -283,58 +420,94 @@ class GoalViewModel: ObservableObject {
     }
     
     func triggerRefund(for goal: Goal, on date: Date, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let userId = Auth.auth().currentUser?.uid, let goalId = goal.id, let paymentIntentId = goal.paymentIntentId else {
-            completion(.failure(NSError(domain: "GoalViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid user, goal ID, or payment intent ID"])))
+        guard let userId = Auth.auth().currentUser?.uid,
+              let goalId = goal.id,
+              let paymentIntentId = goal.paymentIntentId else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Invalid user, goal ID, or payment intent ID"])))
             return
         }
-
-        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
-        let dateString = DateFormatterHelper.shared.string(from: date) // Use consistent date string
-
-        // First, check if the completion exists and is verified
-        goalRef.getDocument { [weak self] (document, error) in
-            if let error = error {
-                completion(.failure(error))
-                return
-            }
-
-            guard let document = document, document.exists,
-                  let completions = document.data()?["completions"] as? [String: [String: Any]],
-                  let completionData = completions[dateString],
-                  let status = completionData["status"] as? String,
-                  status == Completion.CompletionStatus.verified.rawValue else {
-                completion(.failure(NSError(domain: "GoalViewModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Completion not found or not verified"])))
-                return
-            }
-
-            // Implement actual refund logic here using Stripe API
-            self?.processRefund(paymentIntentId: paymentIntentId, amount: Int(goal.amountPerSuccess * 100)) { result in
-                switch result {
-                case .success:
-                    // Update the completion status to refunded
-                    goalRef.updateData([
-                        "completions.\(dateString).status": Completion.CompletionStatus.refunded.rawValue,
-                        "completions.\(dateString).refundedAt": Timestamp(date: Date())
-                    ]) { error in
-                        if let error = error {
-                            completion(.failure(error))
-                        } else {
-                            // Update the local goal object
-                            if let index = self?.goals.firstIndex(where: { $0.id == goalId }) {
-                                self?.goals[index].completions[dateString]?.status = .refunded
-                                self?.goals[index].completions[dateString]?.refundedAt = Date()
+        
+        let completionsRef = db.collection("users")
+            .document(userId)
+            .collection("goals")
+            .document(goalId)
+            .collection("completions")
+        
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dayString = dateFormatter.string(from: date)
+        
+        // Updated query to use "dateString"
+        completionsRef
+            .whereField("dateString", isEqualTo: dayString)
+            .getDocuments { [weak self] snapshot, error in
+                if let error = error {
+                    completion(.failure(error))
+                    return
+                }
+                guard let docs = snapshot?.documents, let doc = docs.first else {
+                    // No existing doc for that date
+                    completion(.failure(NSError(domain: "GoalViewModel", code: 2,
+                                                userInfo: [NSLocalizedDescriptionKey: "Completion not found for that date"])))
+                    return
+                }
+        
+                // 2) Decode it to check if status == .verified
+                do {
+                    let completionObj = try doc.data(as: Completion.self)
+                    if completionObj.status != .verified {
+                        completion(.failure(NSError(domain: "GoalViewModel", code: 2,
+                                                    userInfo: [NSLocalizedDescriptionKey: "Completion not verified"])))
+                        return
+                    }
+                } catch {
+                    completion(.failure(error))
+                    return
+                }
+        
+                // 3) Proceed to refund
+                self?.processRefund(paymentIntentId: paymentIntentId,
+                                    amount: Int(goal.amountPerSuccess * 100)) { result in
+                    switch result {
+                    case .success:
+                        // 4) Mark that completion doc as 'refunded' in Firestore
+                        let docRef = completionsRef.document(doc.documentID)
+                        docRef.updateData([
+                            "status": Completion.CompletionStatus.refunded.rawValue,
+                            "refundedAt": Timestamp(date: Date())
+                        ]) { error in
+                            if let error = error {
+                                completion(.failure(error))
+                            } else {
+                                // 5) Refresh local sub-collection data
+                                self?.fetchCompletions(for: goal)
+                                
+                                // (Optional) Recalculate balance if your balance depends on refunds
                                 self?.updateBalance()
                                 self?.objectWillChange.send()
+                                
+                                completion(.success(()))
                             }
-                            completion(.success(()))
                         }
+                        
+                    case .failure(let error):
+                        completion(.failure(error))
                     }
-                case .failure(let error):
-                    completion(.failure(error))
                 }
             }
-        }
     }
+
+    
+    func earnedAmount(for goal: Goal) -> Double {
+        guard let goalId = goal.id,
+              let completions = completionsByGoal[goalId] else {
+            return 0.0
+        }
+        let refundedCount = completions.filter { $0.status == .refunded }.count
+        return Double(refundedCount) * goal.amountPerSuccess
+    }
+
 
     private func processRefund(paymentIntentId: String, amount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let url = URL(string: "\(AppConfig.serverURL)/refund-payment") else {
@@ -439,7 +612,10 @@ class GoalViewModel: ObservableObject {
     }
     
     private func updateBalance() {
-        balance = goals.reduce(0) { $0 + $1.earnedAmount - $1.totalAmount }
+        balance = goals.reduce(0.0) { partial, goal in
+            let earned = earnedAmount(for: goal)
+            return partial + (earned - goal.totalAmount)
+        }
     }
     
     deinit {

@@ -37,7 +37,7 @@ struct CompletionModalView: View {
                     .padding(.bottom, 5)
                 
                 Button("Confirm") {
-                    addCompletion()
+                    confirmCompletion()
                     print("Completion added, updated goal: \(goal)")
                 }
                 .padding()
@@ -103,7 +103,7 @@ struct CompletionModalView: View {
         return formatter.string(from: date)
     }
 
-    private func addCompletion(photoURL: String? = nil) {
+    private func confirmCompletion(photoURL: String? = nil) {
         isUploading = true
         errorMessage = nil
         
@@ -111,12 +111,16 @@ struct CompletionModalView: View {
         print("Adding completion for date: \(date)")
         print("Date string: \(DateFormatterHelper.shared.string(from: date))")
         
-        // Optimistically update local state
-        let newCompletion = Completion(goalId: goal.id!, date: date, status: .verified)
+        let normalizedDate = Calendar.current.startOfDay(for: date)
+        // Create the "YYYY-MM-dd" string for the query
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dayString = dateFormatter.string(from: date) // e.g. "2025-01-22"
+        
+        let newCompletion = Completion(goalId: goal.id!, date: normalizedDate, dateString: dayString, status: .verified)
         let dateString = DateFormatterHelper.shared.string(from: date)
-        goal.completions[dateString] = newCompletion
 
-        viewModel.addCompletion(for: goal, on: date, verificationPhotoUrl: photoURL)
+        viewModel.addCompletion(for: goal, on: normalizedDate, verificationPhotoUrl: photoURL)
         
         if goal.verificationMethod == .selfVerify {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -163,7 +167,7 @@ struct CompletionModalView: View {
                     return
                 }
 
-                addCompletion(photoURL: downloadURL.absoluteString)
+                confirmCompletion(photoURL: downloadURL.absoluteString)
             }
         }
     }

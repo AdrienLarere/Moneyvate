@@ -23,14 +23,7 @@ class PaymentViewModel: ObservableObject {
         fetchEnvironment()
         fetchIdToken()
     }
-    
-//    enum PaymentMethod: String, CaseIterable, Identifiable {
-//        case applePay = "Apple Pay"
-//        case card = "Credit Card"
-//        
-//        var id: String { self.rawValue }
-//    }
-    
+        
     private func startNetworkMonitoring() {
         monitor.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
