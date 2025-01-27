@@ -81,47 +81,56 @@ class GoalViewModel: ObservableObject {
               let goalId = goal.id else { return }
 
         let completionsRef = db.collection("users")
-                               .document(userId)
-                               .collection("goals")
-                               .document(goalId)
-                               .collection("completions")
+            .document(userId)
+            .collection("goals")
+            .document(goalId)
+            .collection("completions")
 
-        // 1) Query the sub-collection for a doc with the matching date
-        //    (or we can store the docID as a string of the date, or just query with a whereField).
-        // Create the "YYYY-MM-dd" string for the query
+        // 1) Convert date to local midnight
+        let localMidnight = Calendar.current.startOfDay(for: date)
+        
+        // 2) Build local day string
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dayString = dateFormatter.string(from: date)
+        dateFormatter.timeZone = .current
+        let dayString = dateFormatter.string(from: localMidnight)
         
+        print(">>> addCompletion() localMidnight=\(localMidnight), dayString=\(dayString)")
+
+        // 3) Query
         completionsRef
             .whereField("dateString", isEqualTo: dayString)
             .getDocuments { snapshot, error in
                 if let error = error {
-                    print("Error fetching completion docs: \(error)")
+                    print("❌ Error fetching completion docs: \(error)")
                     return
                 }
+                let count = snapshot?.documents.count ?? 0
+                print("✅ Found docs count = \(count) for dayString=\(dayString)")
 
                 guard let doc = snapshot?.documents.first else {
-                    print("No existing completion doc for that date—create one now or fail out.")
+                    print("❌ No existing completion doc for dateString=\(dayString).")
                     return
                 }
+                print("✅ Found doc with ID=\(doc.documentID). Updating status...")
 
-                // 2) Update the status to .verified or .pendingVerification
-                let completionDocRef = completionsRef.document(doc.documentID)
-                let newStatus: Completion.CompletionStatus = (goal.verificationMethod == .selfVerify) ? .verified : .pendingVerification
-                completionDocRef.updateData([
-                    "status" : newStatus.rawValue,
+                let newStatus: Completion.CompletionStatus =
+                    (goal.verificationMethod == .selfVerify) ? .verified : .nonSubmitted
+                
+                doc.reference.updateData([
+                    "status": newStatus.rawValue,
                     "verificationPhotoUrl": verificationPhotoUrl ?? NSNull(),
                     "verifiedAt": (newStatus == .verified) ? Timestamp(date: Date()) : NSNull()
                 ]) { err in
                     if let err = err {
                         print("Error updating completion doc: \(err)")
                     } else {
-                        print("Completion updated for date \(date).")
+                        print("Completion updated for localMidnight=\(localMidnight).")
                     }
                 }
             }
     }
+    
     
     func fetchCompletions(for goal: Goal) {
         guard let userId = Auth.auth().currentUser?.uid,
@@ -202,9 +211,9 @@ class GoalViewModel: ObservableObject {
             // Use 'try?' so it returns nil (instead of throwing) if decoding fails
             for doc in documents {
                 if let completionObj = try? doc.data(as: Completion.self) {
-                    // If date < today and status == .pendingVerification => mark missed
+                    // If date < today and status == .nonSubmitted => mark missed
                     if completionObj.date < today,
-                       completionObj.status == .pendingVerification {
+                       completionObj.status == .nonSubmitted {
                         docsToUpdate.append(doc.reference)
                     }
                 }
@@ -276,6 +285,12 @@ class GoalViewModel: ObservableObject {
                     self?.goals = newGoals
                     self?.updateBalance()
                     self?.objectWillChange.send()
+                    
+                    // **Fetch completions** for each goal (needed for notificationDot)
+                    for g in newGoals {
+                        self?.fetchCompletions(for: g)
+                    }
+                    
                 }
             }
     }
@@ -303,7 +318,6 @@ class GoalViewModel: ObservableObject {
                                           amountPerSuccess: Double,
                                           requiredCompletions: Int,
                                           verificationMethod: Goal.VerificationMethod) {
-
         let completionDates = self.calculateCompletionDates(
             frequency: frequency,
             startDate: startDate,
@@ -317,33 +331,44 @@ class GoalViewModel: ObservableObject {
                                .document(goalId)
                                .collection("completions")
         
+        // DateFormatter for local day string
         let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = .current  // or omit since .current is default
 
-        for date in completionDates {
-            let dayString = formatter.string(from: date)
+        for rawDate in completionDates {
+            // 1) Force each iteration to local midnight
+            let localMidnight = Calendar.current.startOfDay(for: rawDate)
             
+            // 2) Convert that local midnight to a day string
+            let dayString = formatter.string(from: localMidnight)
+            
+            // 3) Decide if it's missed vs. pending
+            let todayLocalMidnight = Calendar.current.startOfDay(for: Date())
+            let status: Completion.CompletionStatus = (localMidnight < todayLocalMidnight)
+                ? .missed
+                : .nonSubmitted
+            
+            // 4) Create the doc with localMidnight + dayString
             let newCompletion = Completion(
                 goalId: goalId,
-                date: date,
+                date: localMidnight,
                 dateString: dayString,
-                status: date < Calendar.current.startOfDay(for: Date()) ? .missed : .pendingVerification,
+                status: status,
                 verificationPhotoUrl: nil,
                 verifiedAt: nil,
                 refundedAt: nil
             )
-
+            
             do {
-                let _ = try completionsRef.addDocument(from: newCompletion)
-                print("Added completion doc for \(dayString) in goalId = \(goalId)")
-                print(">>> Storing doc with dateString:", dayString)
+                try completionsRef.addDocument(from: newCompletion)
+                print("Created local dateString=\(dayString), localMidnight=\(localMidnight) in goalId=\(goalId)")
             } catch {
-                print("Error creating completion doc for date \(date): \(error)")
+                print("Error creating completion doc for date=\(localMidnight): \(error)")
             }
         }
         print("Created \(completionDates.count) completion docs for goalId=\(goalId).")
     }
-
     
     private func calculateCompletionDates(frequency: Goal.Frequency,
                                           startDate: Date,
@@ -436,7 +461,8 @@ class GoalViewModel: ObservableObject {
         
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dayString = dateFormatter.string(from: date)
+        let localMidnight = Calendar.current.startOfDay(for: date)
+        let dayString = dateFormatter.string(from: localMidnight)
         
         // Updated query to use "dateString"
         completionsRef

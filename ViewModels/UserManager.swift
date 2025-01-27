@@ -11,7 +11,7 @@ class UserManager: NSObject, ObservableObject {
     @Published var isEmailVerified = false
     @Published var isNewUser = false
     @Published var errorMessage: String?
-    @Published var userProfile: UserProfile?
+    @Published var userProfile: UserProfile? = nil
     
     var currentCurrency: String {
         return userProfile?.currency ?? "USD"
@@ -154,7 +154,7 @@ class UserManager: NSObject, ObservableObject {
 
     func createUserProfile(for user: User) {
         let db = Firestore.firestore()
-        let userProfile = UserProfile(id: user.uid, email: user.email ?? "", currency: "USD")
+        let userProfile = UserProfile(id: user.uid, email: user.email ?? "", currency: "USD", isAdmin: false)
         do {
             try db.collection("users").document(user.uid).setData(from: userProfile)
             self.userProfile = userProfile

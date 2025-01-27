@@ -13,6 +13,7 @@ struct Completion: Identifiable, Codable {
     var refundError: String? // New field to store refund error messages
 
     enum CompletionStatus: String, Codable {
+        case nonSubmitted
         case pendingVerification
         case verified
         case refunded

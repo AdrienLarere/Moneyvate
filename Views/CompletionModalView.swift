@@ -32,16 +32,16 @@ struct CompletionModalView: View {
             Spacer().frame(height: 175)
             
             if goal.verificationMethod == .selfVerify {
-                Text("I have completed this goal")
+                Text("I swear on my honor that I have achieved my goal and deserve my money back.")
                     .font(.body)  // Changed from .headline to remove bold
                     .padding(.bottom, 5)
-                
-                Button("Confirm") {
+                    .multilineTextAlignment(.center)
+                Button("I swear") {
                     confirmCompletion()
                     print("Completion added, updated goal: \(goal)")
                 }
                 .padding()
-                .background(Color.green)
+                .background(Color.blue)
                 .foregroundColor(.white)
                 .cornerRadius(10)
                 .disabled(isUploading)
@@ -106,28 +106,39 @@ struct CompletionModalView: View {
     private func confirmCompletion(photoURL: String? = nil) {
         isUploading = true
         errorMessage = nil
-        
-        // Debugging
-        print("Adding completion for date: \(date)")
-        print("Date string: \(DateFormatterHelper.shared.string(from: date))")
-        
-        let normalizedDate = Calendar.current.startOfDay(for: date)
-        // Create the "YYYY-MM-dd" string for the query
+
+        print("=== Confirm button tapped ===")
+        print("Goal ID: \(goal.id ?? "nil")")
+        print("Date passed in: \(date)")
+
+        // 1) Convert date -> local midnight
+        let localMidnight = Calendar.current.startOfDay(for: date)
+        print("Normalized date (local midnight): \(localMidnight)")
+
+        // 2) Create a local day string
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dayString = dateFormatter.string(from: date) // e.g. "2025-01-22"
-        
-        let newCompletion = Completion(goalId: goal.id!, date: normalizedDate, dateString: dayString, status: .verified)
-        let dateString = DateFormatterHelper.shared.string(from: date)
+        dateFormatter.timeZone = .current
+        let dayString = dateFormatter.string(from: localMidnight)
+        print("Day string = \(dayString)")
 
-        viewModel.addCompletion(for: goal, on: normalizedDate, verificationPhotoUrl: photoURL)
-        
+        // 3) Ensure goal.id is not nil
+        guard goal.id != nil else {
+            print("❌ goal.id is nil! Cannot proceed.")
+            return
+        }
+
+        // 4) Actually call the GoalViewModel function with localMidnight
+        viewModel.addCompletion(for: goal, on: localMidnight, verificationPhotoUrl: photoURL)
+
+        // 5) If selfVerify, do refund
         if goal.verificationMethod == .selfVerify {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.triggerRefund()
             }
         }
-        
+
+        // 6) Dismiss the modal after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             if let updatedGoal = self.viewModel.goals.first(where: { $0.id == self.goal.id }) {
                 self.goal = updatedGoal
@@ -188,6 +199,8 @@ struct CompletionModalView: View {
     
     private func statusText(for status: Completion.CompletionStatus) -> String {
         switch status {
+        case .nonSubmitted:
+            return "Not Submitted"
         case .pendingVerification:
             return "Pending Verification"
         case .verified:
@@ -205,8 +218,8 @@ struct CompletionModalView: View {
 
     private func statusColor(for status: Completion.CompletionStatus) -> Color {
         switch status {
-        case .pendingVerification:
-            return .yellow
+        case .nonSubmitted, .pendingVerification:
+            return .gray
         case .verified, .refunded:
             return .green
         case .refundFailed, .rejected:

@@ -4,18 +4,21 @@ import FirebaseAuth
 struct ContentView: View {
     @EnvironmentObject var viewModel: GoalViewModel
     @EnvironmentObject var userManager: UserManager
-    @State private var showingAddGoal = false
     @State private var isShowingSignUp = false
     
     var body: some View {
         Group {
+            // 1) Are we authenticated?
             if userManager.isAuthenticated {
+                // 2) Is their email verified?
                 if userManager.isEmailVerified {
+                    // 3) Show admin or normal goals
                     mainView
                 } else {
                     EmailVerificationView()
                 }
             } else {
+                // 4) If not authenticated
                 if userManager.isNewUser {
                     EmailVerificationView()
                 } else {
@@ -43,189 +46,20 @@ struct ContentView: View {
             }
     }
     
+    // The only logic: if admin => AdminSegmentedView, else => GoalsView
     private var mainView: some View {
-        NavigationView {
-            List {
-                
-                if !currentGoals.isEmpty {
-                    Section(header: Text("Current Goals")) {
-                        goalList(goals: currentGoals)
-                    }
-                }
-                
-                if !futureGoals.isEmpty {
-                    Section(header: Text("Future Goals")) {
-                        goalList(goals: futureGoals)
-                    }
-                }
-                
-                if !pastGoals.isEmpty {
-                    Section(header: Text("Past Goals")) {
-                        goalList(goals: pastGoals)
-                    }
-                }
-            }
-            .navigationTitle("Moneyvate")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddGoal = true }) {
-                        Image(systemName: "plus")
-                    }
-                }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Sign Out") {
-                        userManager.signOut()
-                    }
-                }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    NavigationLink(destination: AboutView()) {
-                        Text("About/Contact")
-                            .foregroundColor(.blue)
-                            .font(.footnote)
-                    }
-                    Spacer()
-                    NavigationLink(destination: SettingsView()) {
-                        Image(systemName: "gearshape")
-                            .foregroundColor(.blue)
-                            .font(.footnote)
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAddGoal) {
-                AddGoalView(isPresented: $showingAddGoal)
-                    .environmentObject(viewModel)     // Pass viewModel
-                    .environmentObject(userManager)   // Pass userManager
+        Group {
+            if userManager.userProfile?.isAdmin == true {
+                // Show the Admin layout
+                AdminSegmentedView()
+                    .environmentObject(viewModel)
+                    .environmentObject(userManager)
+            } else {
+                // Show the normal goals layout
+                GoalsView()
+                    .environmentObject(viewModel)
+                    .environmentObject(userManager)
             }
         }
-    }
-    
-    private func goalList(goals: [Goal]) -> some View {
-        ForEach(goals) { goal in
-            NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: goal)) {
-                GoalRowView(goal: goal, viewModel: viewModel)
-            }
-        }
-    }
-    
-    private var currentGoals: [Goal] {
-        let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter { goal in
-                let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
-                let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
-                let isCurrentGoal = goalStartDate <= today && goalEndDate >= today
-                return isCurrentGoal
-            }
-            .sorted { $0.startDate < $1.startDate }
-    }
-
-    private var futureGoals: [Goal] {
-        let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter {
-                let goalStartDate = Calendar.current.startOfDay(for: $0.startDate)
-                return goalStartDate > today
-            }
-            .sorted { $0.startDate < $1.startDate }
-    }
-
-
-    private var pastGoals: [Goal] {
-        let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter {
-                let goalEndDate = Calendar.current.startOfDay(for: $0.endDate)
-                return goalEndDate < today
-            }
-            .sorted { $0.startDate < $1.startDate }
-    }
-
-}
-
-struct GoalRowView: View {
-    let goal: Goal
-    @ObservedObject var viewModel: GoalViewModel
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(goal.title)
-                    .font(.headline)
-                
-                // Show how much earned vs total
-                Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-
-            }
-            Spacer()
-            VStack(alignment: .trailing) {
-                if shouldShowNotificationDot {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 10, height: 10)
-                }
-                Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-    
-    private var completedCompletionsCount: Int {
-        // Filter sub-collection completions
-        guard let goalId = goal.id,
-              let completions = viewModel.completionsByGoal[goalId] else {
-            return 0
-        }
-        return completions.filter { $0.status == .verified || $0.status == .refunded }.count
-    }
-
-    private var shouldShowNotificationDot: Bool {
-        let today = Calendar.current.startOfDay(for: Date())
-        let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
-        let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
-        let isActiveGoal = goalStartDate <= today && goalEndDate >= today
-        if !isActiveGoal { return false }
-
-        // Get all completions for this goal from the VM
-        guard let goalId = goal.id,
-              let completions = viewModel.completionsByGoal[goalId] else {
-            return false
-        }
-        let todayCompletions = completions.filter {
-            Calendar.current.isDate($0.date, inSameDayAs: today)
-        }
-
-        let hasValidCompletionToday = todayCompletions.contains {
-            [.verified, .refunded, .pendingVerification].contains($0.status)
-        }
-
-        switch goal.frequency {
-        case .daily:
-            return !hasValidCompletionToday
-        case .xDays:
-            let completedCount = completions.filter {
-                $0.status == .verified || $0.status == .refunded
-            }.count
-            return (completedCount < goal.requiredCompletions) && !hasValidCompletionToday
-        case .weekdays:
-            let isWeekday = !Calendar.current.isDateInWeekend(today)
-            return isWeekday && !hasValidCompletionToday
-        case .weekends:
-            let isWeekend = Calendar.current.isDateInWeekend(today)
-            return isWeekend && !hasValidCompletionToday
-        }
-    }
-}
-
-extension Calendar {
-    func isDateInWeekday(_ date: Date) -> Bool {
-        !isDateInWeekend(date)
-    }
-
-    func isDateInWeekend(_ date: Date) -> Bool {
-        let weekday = self.component(.weekday, from: date)
-        return weekday == 1 || weekday == 7
     }
 }

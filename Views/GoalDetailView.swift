@@ -92,7 +92,7 @@ struct GoalDetailView: View {
         }
     }
     
-    /// A more nuanced approach to handle .pendingVerification logic
+    /// A more nuanced approach to handle .nonSubmitted logic
     private func completionStatusView(for date: Date) -> some View {
         // 1) If there's a doc in sub-collection for this date:
         if let completion = completionForDate(date) {
@@ -109,15 +109,15 @@ struct GoalDetailView: View {
         let today = Calendar.current.startOfDay(for: Date())
         
         switch completion.status {
-        case .pendingVerification:
+        case .nonSubmitted:
             if date < today {
                 // Past date, not verified => missed
                 return AnyView(Text("Missed")
                     .italic()
                     .foregroundColor(.orange))
             } else if date == today {
-                // Show "Complete" button
-                return AnyView(Button("Complete") {
+                // Show "Verify" button
+                return AnyView(Button("Verify") {
                     selectedDate = date
                     showingCompletionModal = true
                 }
@@ -128,7 +128,8 @@ struct GoalDetailView: View {
                     .font(.caption)
                     .foregroundColor(.gray))
             }
-            
+        case .pendingVerification:
+            return AnyView(Text("Pending Verification").italic().foregroundColor(.gray))
         case .verified:
             return AnyView(Text("Verified").italic().foregroundColor(.green))
         case .refunded:
@@ -153,8 +154,8 @@ struct GoalDetailView: View {
                 .italic()
                 .foregroundColor(.orange))
         } else if date == today {
-            // Show "Complete" button
-            return AnyView(Button("Complete") {
+            // Show "Verify" button
+            return AnyView(Button("Verify") {
                 selectedDate = date
                 showingCompletionModal = true
             }
@@ -170,6 +171,8 @@ struct GoalDetailView: View {
     /// Renders the textual status for an existing Completion doc
     private func completionStatusText(for completion: Completion) -> some View {
         switch completion.status {
+        case .nonSubmitted:
+            return Text("Non Submitted").italic().foregroundColor(.gray)
         case .pendingVerification:
             return Text("Pending Verification").italic().foregroundColor(.gray)
         case .verified:
