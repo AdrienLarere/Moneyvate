@@ -76,7 +76,12 @@ class GoalViewModel: ObservableObject {
     }
 
     
-    func addCompletion(for goal: Goal, on date: Date, verificationPhotoUrl: String? = nil) {
+    func verifyCompletion(
+        for goal: Goal,
+        dayString: String,
+        verificationPhotoUrl: String? = nil,
+        explanation: String? = nil
+    ) {
         guard let userId = Auth.auth().currentUser?.uid,
               let goalId = goal.id else { return }
 
@@ -86,46 +91,50 @@ class GoalViewModel: ObservableObject {
             .document(goalId)
             .collection("completions")
 
-        // 1) Convert date to local midnight
-        let localMidnight = Calendar.current.startOfDay(for: date)
-        
-        // 2) Build local day string
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.timeZone = .current
-        let dayString = dateFormatter.string(from: localMidnight)
-        
-        print(">>> addCompletion() localMidnight=\(localMidnight), dayString=\(dayString)")
+        print(">>> verifyCompletion() dayString=\(dayString)")
 
-        // 3) Query
         completionsRef
             .whereField("dateString", isEqualTo: dayString)
             .getDocuments { snapshot, error in
                 if let error = error {
-                    print("❌ Error fetching completion docs: \(error)")
+                    print("❌ Error fetching completion docs for dayString=\(dayString): \(error)")
                     return
                 }
-                let count = snapshot?.documents.count ?? 0
-                print("✅ Found docs count = \(count) for dayString=\(dayString)")
-
                 guard let doc = snapshot?.documents.first else {
-                    print("❌ No existing completion doc for dateString=\(dayString).")
+                    print("❌ No existing completion doc for dayString=\(dayString).")
                     return
                 }
                 print("✅ Found doc with ID=\(doc.documentID). Updating status...")
 
-                let newStatus: Completion.CompletionStatus =
-                    (goal.verificationMethod == .selfVerify) ? .verified : .nonSubmitted
-                
-                doc.reference.updateData([
-                    "status": newStatus.rawValue,
+                // If 'photoVerification', set .pendingVerification;
+                // If 'selfVerify', set .verified
+                let newStatus: Completion.CompletionStatus = {
+                    if goal.verificationMethod == .selfVerify {
+                        return .verified
+                    } else {
+                        return .pendingVerification
+                    }
+                }()
+
+                // Build the update dictionary
+                var updateData: [String: Any] = [
+                    "status" : newStatus.rawValue,
                     "verificationPhotoUrl": verificationPhotoUrl ?? NSNull(),
+                    // Only set verifiedAt if newStatus == .verified
                     "verifiedAt": (newStatus == .verified) ? Timestamp(date: Date()) : NSNull()
-                ]) { err in
+                ]
+
+                // If the user typed an explanation
+                if let explanation = explanation, !explanation.isEmpty {
+                    updateData["explanation"] = explanation
+                }
+
+                doc.reference.updateData(updateData) { err in
                     if let err = err {
                         print("Error updating completion doc: \(err)")
                     } else {
-                        print("Completion updated for localMidnight=\(localMidnight).")
+                        print("Completion doc updated to \(newStatus) for dayString=\(dayString).")
+                        // Optionally call self?.fetchCompletions(for: goal) to refresh
                     }
                 }
             }
@@ -193,9 +202,16 @@ class GoalViewModel: ObservableObject {
             .document(goalId)
             .collection("completions")
         
-        let today = Calendar.current.startOfDay(for: Date())
+        // "todayLocal" is the local midnight for the current user’s time zone
+        let todayLocal = Calendar.current.startOfDay(for: Date())
         
-        completionsRef.getDocuments { [weak self] (snapshot, error) in
+        completionsRef.getDocuments { [weak self] snapshot, error in
+            // Early unwrapping of self
+            guard let self = self else {
+                completion()
+                return
+            }
+            
             if let error = error {
                 print("Error fetching completions for missed-check: \(error)")
                 completion()
@@ -208,18 +224,24 @@ class GoalViewModel: ObservableObject {
 
             var docsToUpdate: [DocumentReference] = []
             
-            // Use 'try?' so it returns nil (instead of throwing) if decoding fails
             for doc in documents {
                 if let completionObj = try? doc.data(as: Completion.self) {
-                    // If date < today and status == .nonSubmitted => mark missed
-                    if completionObj.date < today,
-                       completionObj.status == .nonSubmitted {
-                        docsToUpdate.append(doc.reference)
+                    // 1) We only mark "nonSubmitted" as missed if it's before "today"
+                    guard completionObj.status == .nonSubmitted else { continue }
+                    
+                    // 2) Parse the doc’s dateString into local midnight using self
+                    if let docLocalDate = self.parseLocalMidnight(completionObj.dateString ?? "") {
+                        // 3) Compare docLocalDate < todayLocal
+                        if docLocalDate < todayLocal {
+                            docsToUpdate.append(doc.reference)
+                        }
+                    } else {
+                        print("Unable to parse dateString for doc: \(doc.documentID)")
                     }
                 }
             }
             
-            guard let self = self, !docsToUpdate.isEmpty else {
+            guard !docsToUpdate.isEmpty else {
                 print("No completions need to be marked missed for goal \(goalId).")
                 completion()
                 return
@@ -239,6 +261,14 @@ class GoalViewModel: ObservableObject {
                 completion()
             }
         }
+    }
+
+    
+    private func parseLocalMidnight(_ dayString: String) -> Date? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = .current
+        return df.date(from: dayString)
     }
 
     
@@ -444,7 +474,7 @@ class GoalViewModel: ObservableObject {
        return dates
     }
     
-    func triggerRefund(for goal: Goal, on date: Date, completion: @escaping (Result<Void, Error>) -> Void) {
+    func triggerRefund(for goal: Goal, dayString: String, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let userId = Auth.auth().currentUser?.uid,
               let goalId = goal.id,
               let paymentIntentId = goal.paymentIntentId else {
@@ -459,10 +489,10 @@ class GoalViewModel: ObservableObject {
             .document(goalId)
             .collection("completions")
         
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let localMidnight = Calendar.current.startOfDay(for: date)
-        let dayString = dateFormatter.string(from: localMidnight)
+//        let dateFormatter = DateFormatter()
+//        dateFormatter.dateFormat = "yyyy-MM-dd"
+//        let localMidnight = Calendar.current.startOfDay(for: date)
+//        let dayString = dateFormatter.string(from: localMidnight)
         
         // Updated query to use "dateString"
         completionsRef

@@ -75,14 +75,51 @@ extension Goal {
         switch frequency {
         case .daily:
             return numberOfDays
+
         case .xDays:
-            // If you want "X" to be determined by totalAmount / amountPerSuccess
-            // (or you can store X directly in the goal if you prefer).
+            // However you define "X days," e.g. totalAmount ÷ amountPerSuccess:
             return min(numberOfDays, Int(totalAmount / amountPerSuccess))
+
         case .weekdays:
-            return Calendar.current.weekdaySymbols.filter { !["Saturday", "Sunday"].contains($0) }.count
+            // Actually loop from startDate...endDate and count M–F
+            return Goal.countWeekdaysBetween(startDate, endDate)
+
         case .weekends:
-            return Calendar.current.weekdaySymbols.filter { ["Saturday", "Sunday"].contains($0) }.count
+            // Actually loop from startDate...endDate and count Sat/Sun
+            return Goal.countWeekendsBetween(startDate, endDate)
         }
     }
+    
+    private static func countWeekdaysBetween(_ start: Date, _ end: Date) -> Int {
+        let calendar = Calendar.current
+        var count = 0
+        
+        var day = calendar.startOfDay(for: start)
+        let endDay = calendar.startOfDay(for: end)
+        
+        while day <= endDay {
+            if !calendar.isDateInWeekend(day) {
+                count += 1
+            }
+            day = calendar.date(byAdding: .day, value: 1, to: day)!
+        }
+        return count
+    }
+
+    private static func countWeekendsBetween(_ start: Date, _ end: Date) -> Int {
+        let calendar = Calendar.current
+        var count = 0
+
+        var day = calendar.startOfDay(for: start)
+        let endDay = calendar.startOfDay(for: end)
+
+        while day <= endDay {
+            if calendar.isDateInWeekend(day) {
+                count += 1
+            }
+            day = calendar.date(byAdding: .day, value: 1, to: day)!
+        }
+        return count
+    }
+    
 }

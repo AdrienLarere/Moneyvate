@@ -3,7 +3,7 @@ import SwiftUI
 struct GoalDetailView: View {
     @ObservedObject var viewModel: GoalViewModel
     @State private var showingCompletionModal = false
-    @State private var selectedDate: Date?
+    @State private var selectedDayString: String?
     @State private var goal: Goal
 
     init(viewModel: GoalViewModel, goal: Goal) {
@@ -24,12 +24,12 @@ struct GoalDetailView: View {
             
             Section(header: Text("Progress")) {
                 // Use the same getDateRange() to list dates
-                ForEach(getDateRange(), id: \.self) { date in
+                ForEach(getDayStringsRange(), id: \.self) { dayStr in
                     HStack {
-                        Text(formatDate(date))
+                        Text(formatDayStringNicely(dayStr))
                         Spacer()
                         // Instead of referencing goal.completions, we look up the completion in the sub-collection data
-                        completionStatusView(for: date)
+                        completionStatusView(for: dayStr)
                     }
                 }
             }
@@ -53,10 +53,12 @@ struct GoalDetailView: View {
         }
         // Show the modal when user taps "Verify"
         .sheet(isPresented: $showingCompletionModal) {
-            if let date = selectedDate {
-                // Note: This modal still references the old approach if it modifies goal.completions
-                // We’ll assume you updated CompletionModalView to call viewModel.updateCompletionStatus(for:on:)
-                CompletionModalView(viewModel: viewModel, goal: $goal, date: date) {
+            if let dayStr = selectedDayString {
+                CompletionModalView(
+                    viewModel: viewModel,
+                    goal: $goal,
+                    dayString: dayStr
+                ) {
                     refreshGoal()
                 }
             }
@@ -80,54 +82,74 @@ struct GoalDetailView: View {
     
     // MARK: - Subviews & Helpers
     
+    private func formatDayStringNicely(_ dayStr: String) -> String {
+        // E.g. parse "2025-01-27" -> "Jan 27, 2025"
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = .current
+        if let date = df.date(from: dayStr) {
+            let displayDF = DateFormatter()
+            displayDF.dateFormat = "MMM d, yyyy"
+            return displayDF.string(from: date)
+        }
+        return dayStr
+    }
+    
     /// Looks up the completion for a specific date in the sub-collection array
-    private func completionForDate(_ date: Date) -> Completion? {
+    private func completionForDayString(_ dayString: String) -> Completion? {
         guard let goalId = goal.id else { return nil }
         guard let completions = viewModel.completionsByGoal[goalId] else {
             return nil
         }
-        // We compare just the day, ignoring time
-        return completions.first {
-            Calendar.current.isDate($0.date, inSameDayAs: date)
-        }
+        return completions.first { $0.dateString == dayString }
     }
+
     
     /// A more nuanced approach to handle .nonSubmitted logic
-    private func completionStatusView(for date: Date) -> some View {
-        // 1) If there's a doc in sub-collection for this date:
-        if let completion = completionForDate(date) {
-            return AnyView(viewForExistingCompletion(completion, date: date))
-        }
-        else {
-            // 2) If there's *no doc* for this date
-            return AnyView(viewForNoCompletionDoc(date))
+    private func completionStatusView(for dayString: String) -> some View {
+        // Check if we have a doc for that dayString
+        if let completion = completionForDayString(dayString) {
+            return AnyView(viewForExistingCompletion(completion, dayString: dayString))
+        } else {
+            return AnyView(viewForNoCompletionDoc(dayString))
         }
     }
 
+
     /// For a date *with* an existing completion doc
-    private func viewForExistingCompletion(_ completion: Completion, date: Date) -> some View {
+    private func viewForExistingCompletion(_ completion: Completion, dayString: String) -> some View {
+        // 1) Parse dayString → local Date
+        guard let localDate = parseLocalMidnight(dayString) else {
+            // Fallback if dayString can't be parsed
+            return AnyView(Text("Error: invalid dayString").foregroundColor(.red))
+        }
+
+        // 2) Compare with 'today'
         let today = Calendar.current.startOfDay(for: Date())
-        
+
         switch completion.status {
         case .nonSubmitted:
-            if date < today {
-                // Past date, not verified => missed
+            if localDate < today {
+                // Past date => missed
                 return AnyView(Text("Missed")
                     .italic()
                     .foregroundColor(.orange))
-            } else if date == today {
-                // Show "Verify" button
-                return AnyView(Button("Verify") {
-                    selectedDate = date
-                    showingCompletionModal = true
-                }
-                .buttonStyle(BorderlessButtonStyle()))
+            } else if Calendar.current.isDate(localDate, inSameDayAs: today) {
+                // It's "today" => show "Verify" button
+                return AnyView(
+                    Button("Verify") {
+                        selectedDayString = dayString
+                        showingCompletionModal = true
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                )
             } else {
-                // Future date => upcoming
+                // Future => upcoming
                 return AnyView(Text("Upcoming")
                     .font(.caption)
                     .foregroundColor(.gray))
             }
+
         case .pendingVerification:
             return AnyView(Text("Pending Verification").italic().foregroundColor(.gray))
         case .verified:
@@ -145,28 +167,39 @@ struct GoalDetailView: View {
 
 
     /// For a date with *no* completion doc in sub-collection
-    private func viewForNoCompletionDoc(_ date: Date) -> some View {
+    private func viewForNoCompletionDoc(_ dayString: String) -> some View {
+        guard let localDate = parseLocalMidnight(dayString) else {
+            return AnyView(Text("Error: invalid dayString").foregroundColor(.red))
+        }
+
         let today = Calendar.current.startOfDay(for: Date())
-        
-        if date < today {
-            // Past date, not verified => missed
-            return AnyView(Text("Missed")
-                .italic()
-                .foregroundColor(.orange))
-        } else if date == today {
-            // Show "Verify" button
-            return AnyView(Button("Verify") {
-                selectedDate = date
-                showingCompletionModal = true
-            }
-            .buttonStyle(BorderlessButtonStyle()))
+
+        if localDate < today {
+            // Past => missed
+            return AnyView(
+                Text("Missed")
+                    .italic()
+                    .foregroundColor(.orange)
+            )
+        } else if Calendar.current.isDate(localDate, inSameDayAs: today) {
+            // Present => show "Verify"
+            return AnyView(
+                Button("Verify") {
+                    selectedDayString = dayString
+                    showingCompletionModal = true
+                }
+                .buttonStyle(BorderlessButtonStyle())
+            )
         } else {
-            // Future date => upcoming
-            return AnyView(Text("Upcoming")
-                .font(.caption)
-                .foregroundColor(.gray))
+            // Future => upcoming
+            return AnyView(
+                Text("Upcoming")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            )
         }
     }
+
 
     /// Renders the textual status for an existing Completion doc
     private func completionStatusText(for completion: Completion) -> some View {
@@ -190,56 +223,81 @@ struct GoalDetailView: View {
     
     /// Determines if the "Verify" button should appear for this date
     /// - We check if it's 'today' and that there's no existing completion doc.
-    private func canCompleteForDate(_ date: Date) -> Bool {
+    private func canCompleteForDate(_ dayString: String) -> Bool {
+        guard let localDate = parseLocalMidnight(dayString) else {
+            return false
+        }
+
+        // 1) Check if dayString is "today"
         let today = Calendar.current.startOfDay(for: Date())
-        let isToday = Calendar.current.isDate(date, inSameDayAs: today)
-        let completionExists = (completionForDate(date) != nil)
-        
-        // If the goal is xDays, we also check how many completions are verified/refunded so far
+        let isToday = Calendar.current.isDate(localDate, inSameDayAs: today)
+
+        // 2) See if we have a completion doc for that dayString
+        let completionExists = (completionForDayString(dayString) != nil)
+
         switch goal.frequency {
         case .daily:
             return isToday && !completionExists
+
         case .weekdays:
-            return isToday &&
-                   !Calendar.current.isDateInWeekend(date) &&
-                   !completionExists
+            return isToday
+                && !Calendar.current.isDateInWeekend(localDate)
+                && !completionExists
+
         case .weekends:
-            return isToday &&
-                   Calendar.current.isDateInWeekend(date) &&
-                   !completionExists
+            return isToday
+                && Calendar.current.isDateInWeekend(localDate)
+                && !completionExists
+
         case .xDays:
-            // Count how many completions are 'complete' so far
+            // Count how many completions are verified or refunded
             let completedCount = (viewModel.completionsByGoal[goal.id ?? ""] ?? [])
                 .filter { $0.status == .verified || $0.status == .refunded }
                 .count
-            return isToday &&
-                   (completedCount < goal.requiredCompletions) &&
-                   !completionExists
+
+            return isToday
+                && (completedCount < goal.requiredCompletions)
+                && !completionExists
         }
     }
-    
-    private func getDateRange() -> [Date] {
-        // Same as before, listing the "display" dates from startDate to endDate
-        let calendar = Calendar.current
-        let startDate = calendar.startOfDay(for: goal.startDate)
-        let endDate = calendar.startOfDay(for: goal.endDate)
 
-        guard let days = calendar.dateComponents([.day], from: startDate, to: endDate).day else {
+    
+    private func getDayStringsRange() -> [String] {
+        let calendar = Calendar.current
+        let localStart = calendar.startOfDay(for: goal.startDate)
+        let localEnd   = calendar.startOfDay(for: goal.endDate)
+        
+        guard let totalDays = calendar.dateComponents([.day], from: localStart, to: localEnd).day else {
             return []
         }
-
-        let totalDays = days + 1
-
-        let allDates = (0..<totalDays).compactMap { calendar.date(byAdding: .day, value: $0, to: startDate) }
-
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = .current
+        
+        // 1) Build *all* days from start to end
+        var allDates: [Date] = []
+        for offset in 0...totalDays {
+            if let thisDay = calendar.date(byAdding: .day, value: offset, to: localStart) {
+                allDates.append(thisDay)
+            }
+        }
+        
+        // 2) Filter out days that do not match the frequency
+        let filteredDates: [Date]
         switch goal.frequency {
         case .daily, .xDays:
-            return allDates
+            filteredDates = allDates  // no filtering
+
         case .weekdays:
-            return allDates.filter { !calendar.isDateInWeekend($0) }
+            filteredDates = allDates.filter { !calendar.isDateInWeekend($0) }
+
         case .weekends:
-            return allDates.filter { calendar.isDateInWeekend($0) }
+            filteredDates = allDates.filter { calendar.isDateInWeekend($0) }
         }
+        
+        // 3) Convert to day strings
+        return filteredDates.map { formatter.string(from: $0) }
     }
     
     private func formatDate(_ date: Date) -> String {
@@ -263,5 +321,12 @@ struct GoalDetailView: View {
         if let updatedGoal = viewModel.getGoal(withId: goalId) {
             self.goal = updatedGoal
         }
+    }
+    
+    private func parseLocalMidnight(_ dayString: String) -> Date? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = .current  // or omit since .current is default
+        return df.date(from: dayString)
     }
 }

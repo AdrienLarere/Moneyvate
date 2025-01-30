@@ -10,24 +10,29 @@ struct Completion: Identifiable, Codable {
     var verificationPhotoUrl: String?
     var verifiedAt: Date?
     var refundedAt: Date?
-    var refundError: String? // New field to store refund error messages
+    var refundError: String?
+    var explanation: String?  // New field
 
     enum CompletionStatus: String, Codable {
         case nonSubmitted
         case pendingVerification
         case verified
         case refunded
-        case refundFailed // New status for refund failure
+        case refundFailed
         case rejected
         case missed
     }
 
-    // Remove CodingKeys and custom init/encode methods to use automatic synthesis
-    /*
-    enum CodingKeys: String, CodingKey { ... }
-
-    init(from decoder: Decoder) throws { ... }
-
-    func encode(to encoder: Encoder) throws { ... }
-    */
+    enum CodingKeys: String, CodingKey {
+        case id
+        case goalId
+        case date
+        case dateString
+        case status
+        case verificationPhotoUrl
+        case verifiedAt
+        case refundedAt
+        case refundError
+        case explanation  // Also include this in coding keys
+    }
 }
