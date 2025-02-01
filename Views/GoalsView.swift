@@ -7,20 +7,32 @@ struct GoalsView: View {
     
     var body: some View {
         NavigationView {
-            List {
-                if !currentGoals.isEmpty {
-                    Section(header: Text("Current Goals")) {
-                        goalList(goals: currentGoals)
+            Group {
+                if viewModel.goals.isEmpty {
+                    VStack {
+                        Spacer()
+                        Text("Create your first goal by clicking on the \"+\" sign in the top right corner")
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)  // Increased horizontal padding
+                        Spacer()
                     }
-                }
-                if !futureGoals.isEmpty {
-                    Section(header: Text("Upcoming Goals")) {
-                        goalList(goals: futureGoals)
-                    }
-                }
-                if !pastAndCompletedGoals.isEmpty {
-                    Section(header: Text("Past & Completed Goals")) {
-                        goalList(goals: pastAndCompletedGoals)
+                } else {
+                    List {
+                        if !currentGoals.isEmpty {
+                            Section(header: Text("Current Goals")) {
+                                goalList(goals: currentGoals)
+                            }
+                        }
+                        if !futureGoals.isEmpty {
+                            Section(header: Text("Upcoming Goals")) {
+                                goalList(goals: futureGoals)
+                            }
+                        }
+                        if !pastAndCompletedGoals.isEmpty {
+                            Section(header: Text("Past & Completed Goals")) {
+                                goalList(goals: pastAndCompletedGoals)
+                            }
+                        }
                     }
                 }
             }

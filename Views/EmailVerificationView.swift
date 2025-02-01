@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseAuth
 
 struct EmailVerificationView: View {
     @EnvironmentObject var userManager: UserManager
@@ -64,11 +65,20 @@ struct EmailVerificationView: View {
     
     private func checkVerification() {
         isChecking = true
-        userManager.checkEmailVerification { isVerified in
+        // Force a reload of the current user to get updated verification status.
+        Auth.auth().currentUser?.reload { error in
             isChecking = false
-            if !isVerified {
-                alertMessage = "Email is not yet verified. Please check your inbox and spam folder."
+            if let error = error {
+                alertMessage = "Error reloading user: \(error.localizedDescription)"
                 showingAlert = true
+            } else {
+                let isVerified = Auth.auth().currentUser?.isEmailVerified ?? false
+                if !isVerified {
+                    alertMessage = "Email is not yet verified. Please check your inbox and spam folder."
+                    showingAlert = true
+                }
+                // If verified, you can then update your userManager, if needed,
+                // or proceed with the flow that transitions to the main app.
             }
         }
     }

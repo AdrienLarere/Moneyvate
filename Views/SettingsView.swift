@@ -1,5 +1,3 @@
-// SettingsView.swift
-
 import SwiftUI
 
 struct SettingsView: View {
@@ -9,6 +7,14 @@ struct SettingsView: View {
     
     var body: some View {
         Form {
+            Section(header: Text("Account")) {
+                if let email = userManager.userProfile?.email {
+                    Text("You are logged in as: \(email)")
+                } else {
+                    Text("No email available")
+                }
+            }
+            
             Section(header: Text("Currency")) {
                 Picker("Select Currency", selection: $selectedCurrency) {
                     ForEach(currencies, id: \.self) { currency in

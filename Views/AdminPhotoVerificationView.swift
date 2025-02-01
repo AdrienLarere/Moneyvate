@@ -1,21 +1,25 @@
 import SwiftUI
-import FirebaseFirestore // Add this
+import FirebaseFirestore
 
 struct AdminPhotoVerificationView: View {
-    let ref: DocumentReference // Changed from completion
+    let ref: DocumentReference // Reference to the completion document.
     @ObservedObject var viewModel: AdminViewModel
     @Environment(\.dismiss) private var dismiss
-    @StateObject var goalVM = GoalViewModel()
-    @State private var image: UIImage?
+    @StateObject var goalVM = GoalViewModel() // For refund logic.
+    
+    @State private var goal: Goal?           // Fetched goal document.
+    @State private var image: UIImage?         // Loaded image.
     @State private var isLoading = true
-    @State private var completion: Completion? // Added to load from ref
+    @State private var completion: Completion? // Fetched completion document.
+    @State private var loadErrorMessage: String? // Error message if image fails.
     
     var body: some View {
         Group {
             if isLoading {
                 ProgressView("Loading...")
-            } else if let image = image, let completion = completion {
-                contentView(image: image, completion: completion)
+            } else if let goal = goal, let _ = completion {
+                // Always show the goal title and then either the image or an error message.
+                contentViewForGoal()
             } else {
                 Text("Failed to load data")
                     .foregroundColor(.red)
@@ -26,41 +30,73 @@ struct AdminPhotoVerificationView: View {
         }
     }
     
+    // Load completion, goal, and image.
     private func loadData() async {
-        // First load completion from reference
         do {
+            // 1. Fetch the completion document.
             let snapshot = try await ref.getDocument()
             completion = try snapshot.data(as: Completion.self)
             
-            // Then load image if available
+            // 2. Fetch the goal document from the parent's parent.
+            if let goalDocRef = ref.parent.parent {
+                let goalSnapshot = try await goalDocRef.getDocument()
+                goal = try goalSnapshot.data(as: Goal.self)
+            }
+            
+            // 3. Attempt to load the image.
             if let urlString = completion?.verificationPhotoUrl,
                let url = URL(string: urlString) {
                 let (data, _) = try await URLSession.shared.data(from: url)
-                image = UIImage(data: data)
+                if let uiImage = UIImage(data: data) {
+                    image = uiImage
+                } else {
+                    loadErrorMessage = "Link missing or broken"
+                }
+            } else {
+                loadErrorMessage = "Link missing or broken"
             }
         } catch {
             print("Loading failed: \(error)")
+            loadErrorMessage = "Link missing or broken"
         }
         isLoading = false
     }
     
-    // Updated to take completion parameter
-    private func contentView(image: UIImage, completion: Completion) -> some View {
+    // A view that always displays the goal title at the top.
+    // If the image is loaded, it shows the image; otherwise, it shows an error message.
+    private func contentViewForGoal() -> some View {
         VStack(spacing: 20) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxHeight: 400)
+            // Display the goal title at the top.
+            if let goalTitle = goal?.title {
+                Text(goalTitle)
+                    .font(.title)
+                    .fontWeight(.bold)
+            }
             
-            if let explanation = completion.explanation {
+            // Display image if available; otherwise, show an error message.
+            if let image = image, let _ = completion {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 400)
+            } else {
+                Text(loadErrorMessage ?? "Link missing or broken")
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            }
+            
+            // Display the explanation if available.
+            if let explanation = completion?.explanation, !explanation.isEmpty {
                 Text(explanation)
                     .padding()
                     .cornerRadius(8)
             }
             
+            // Action buttons.
             HStack(spacing: 20) {
                 Button("Reject") {
-                    viewModel.rejectSubmission(ref) // Changed to use ref
+                    viewModel.rejectSubmission(ref)
                     dismiss()
                 }
                 .buttonStyle(RejectButtonStyle())
@@ -68,11 +104,11 @@ struct AdminPhotoVerificationView: View {
                 Button("Verify") {
                     print("DEBUG: Verify button tapped.")
                     
-                    // First update the completion's status to 'verified'
+                    // Update the completion's status.
                     viewModel.approveSubmission(ref)
                     print("DEBUG: Called approveSubmission with ref: \(ref.path)")
                     
-                    // Get the parent goal document from the completion's reference.
+                    // Fetch the goal document for refund logic.
                     guard let goalDocRef = ref.parent.parent else {
                         print("DEBUG: Could not determine goal document reference.")
                         dismiss()
@@ -88,14 +124,14 @@ struct AdminPhotoVerificationView: View {
                             return
                         }
                         guard let snapshot = snapshot, snapshot.exists,
-                              let goal = try? snapshot.data(as: Goal.self) else {
+                              let fetchedGoal = try? snapshot.data(as: Goal.self) else {
                             print("DEBUG: Goal document not found or could not be decoded.")
                             dismiss()
                             return
                         }
-                        print("DEBUG: Successfully fetched goal document: \(goal)")
+                        print("DEBUG: Successfully fetched goal document: \(fetchedGoal)")
                         
-                        // Extract the owner (user) ID from the document path.
+                        // Extract the owner (user) ID.
                         if let ownerDocRef = goalDocRef.parent.parent {
                             let ownerId = ownerDocRef.documentID
                             print("DEBUG: Retrieved owner document reference: \(ownerDocRef.path) with ownerId: \(ownerId)")
@@ -103,8 +139,8 @@ struct AdminPhotoVerificationView: View {
                             let refundDayString = self.completion?.dateString ?? ""
                             print("DEBUG: Will call triggerRefund for dayString: \(refundDayString)")
                             
-                            // Use the retained goalVM instead of creating a new one.
-                            goalVM.triggerRefund(for: goal, dayString: refundDayString, ownerId: ownerId) { result in
+                            // Trigger refund using the retained goalVM.
+                            goalVM.triggerRefund(for: fetchedGoal, dayString: refundDayString, ownerId: ownerId) { result in
                                 DispatchQueue.main.async {
                                     switch result {
                                     case .success:

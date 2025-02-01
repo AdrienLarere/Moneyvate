@@ -29,10 +29,11 @@ class GoalViewModel: ObservableObject {
                  verificationMethod: Goal.VerificationMethod,
                  currency: String,
                  paymentIntentId: String?,
-                 selectedXDays: Int? = nil) {   // <-- New parameter added with a default value
+                 selectedXDays: Int? = nil) {
                  
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
         guard let userId = Auth.auth().currentUser?.uid else { return }
+        print("Current user UID: \(userId)")
 
         let newGoal = Goal(
             id: nil,
