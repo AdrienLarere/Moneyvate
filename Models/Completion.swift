@@ -11,7 +11,7 @@ struct Completion: Identifiable, Codable {
     var verifiedAt: Date?
     var refundedAt: Date?
     var refundError: String?
-    var explanation: String?  // New field
+    var explanation: String?
 
     enum CompletionStatus: String, Codable {
         case nonSubmitted
@@ -33,6 +33,6 @@ struct Completion: Identifiable, Codable {
         case verifiedAt
         case refundedAt
         case refundError
-        case explanation  // Also include this in coding keys
+        case explanation
     }
 }

@@ -28,8 +28,9 @@ class GoalViewModel: ObservableObject {
                  requiredCompletions: Int,
                  verificationMethod: Goal.VerificationMethod,
                  currency: String,
-                 paymentIntentId: String?) {
-
+                 paymentIntentId: String?,
+                 selectedXDays: Int? = nil) {   // <-- New parameter added with a default value
+                 
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
         guard let userId = Auth.auth().currentUser?.uid else { return }
 
@@ -44,7 +45,8 @@ class GoalViewModel: ObservableObject {
             totalAmount: totalAmount,
             verificationMethod: verificationMethod,
             currency: currency,
-            paymentIntentId: paymentIntentId
+            paymentIntentId: paymentIntentId,
+            selectedXDays: selectedXDays   // Pass the selectedXDays value
         )
         
         do {
@@ -474,60 +476,65 @@ class GoalViewModel: ObservableObject {
        return dates
     }
     
-    func triggerRefund(for goal: Goal, dayString: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let userId = Auth.auth().currentUser?.uid,
-              let goalId = goal.id,
-              let paymentIntentId = goal.paymentIntentId else {
+    func triggerRefund(for goal: Goal, dayString: String, ownerId: String? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
+        // Use ownerId if passed in; otherwise, use current user's UID.
+        let actualOwnerId: String
+        if let ownerId = ownerId {
+            actualOwnerId = ownerId
+        } else if let uid = Auth.auth().currentUser?.uid {
+            actualOwnerId = uid
+        } else {
             completion(.failure(NSError(domain: "GoalViewModel", code: 1,
-                                        userInfo: [NSLocalizedDescriptionKey: "Invalid user, goal ID, or payment intent ID"])))
+                                        userInfo: [NSLocalizedDescriptionKey: "Invalid owner ID"])))
+            return
+        }
+        
+        guard let goalId = goal.id, let paymentIntentId = goal.paymentIntentId else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Invalid goal ID or payment intent"])))
             return
         }
         
         let completionsRef = db.collection("users")
-            .document(userId)
+            .document(actualOwnerId)
             .collection("goals")
             .document(goalId)
             .collection("completions")
         
-//        let dateFormatter = DateFormatter()
-//        dateFormatter.dateFormat = "yyyy-MM-dd"
-//        let localMidnight = Calendar.current.startOfDay(for: date)
-//        let dayString = dateFormatter.string(from: localMidnight)
-        
-        // Updated query to use "dateString"
         completionsRef
             .whereField("dateString", isEqualTo: dayString)
             .getDocuments { [weak self] snapshot, error in
                 if let error = error {
+                    print("triggerRefund: Error fetching completions: \(error.localizedDescription)")
                     completion(.failure(error))
                     return
                 }
                 guard let docs = snapshot?.documents, let doc = docs.first else {
-                    // No existing doc for that date
+                    print("triggerRefund: No completion found for dayString \(dayString)")
                     completion(.failure(NSError(domain: "GoalViewModel", code: 2,
                                                 userInfo: [NSLocalizedDescriptionKey: "Completion not found for that date"])))
                     return
                 }
-        
-                // 2) Decode it to check if status == .verified
+                
                 do {
                     let completionObj = try doc.data(as: Completion.self)
+                    print("triggerRefund: Fetched completion: \(completionObj)")
                     if completionObj.status != .verified {
+                        print("triggerRefund: Completion status is \(completionObj.status.rawValue), not verified.")
                         completion(.failure(NSError(domain: "GoalViewModel", code: 2,
                                                     userInfo: [NSLocalizedDescriptionKey: "Completion not verified"])))
                         return
                     }
                 } catch {
+                    print("triggerRefund: Error decoding completion: \(error.localizedDescription)")
                     completion(.failure(error))
                     return
                 }
-        
-                // 3) Proceed to refund
+                
                 self?.processRefund(paymentIntentId: paymentIntentId,
                                     amount: Int(goal.amountPerSuccess * 100)) { result in
                     switch result {
                     case .success:
-                        // 4) Mark that completion doc as 'refunded' in Firestore
                         let docRef = completionsRef.document(doc.documentID)
                         docRef.updateData([
                             "status": Completion.CompletionStatus.refunded.rawValue,
@@ -536,17 +543,12 @@ class GoalViewModel: ObservableObject {
                             if let error = error {
                                 completion(.failure(error))
                             } else {
-                                // 5) Refresh local sub-collection data
                                 self?.fetchCompletions(for: goal)
-                                
-                                // (Optional) Recalculate balance if your balance depends on refunds
                                 self?.updateBalance()
                                 self?.objectWillChange.send()
-                                
                                 completion(.success(()))
                             }
                         }
-                        
                     case .failure(let error):
                         completion(.failure(error))
                     }
@@ -560,98 +562,110 @@ class GoalViewModel: ObservableObject {
               let completions = completionsByGoal[goalId] else {
             return 0.0
         }
-        let refundedCount = completions.filter { $0.status == .refunded }.count
-        return Double(refundedCount) * goal.amountPerSuccess
+        let successfulCompletions = completions.filter {
+            $0.status == .refunded || $0.status == .verified
+        }
+        return Double(successfulCompletions.count) * goal.amountPerSuccess
     }
 
 
     private func processRefund(paymentIntentId: String, amount: Int, completion: @escaping (Result<Void, Error>) -> Void) {
+        // Build the refund endpoint URL.
         guard let url = URL(string: "\(AppConfig.serverURL)/refund-payment") else {
-            print("Invalid server URL")
-            completion(.failure(NSError(domain: "GoalViewModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid server URL"])))
+            print("DEBUG: Invalid server URL")
+            completion(.failure(NSError(domain: "GoalViewModel", code: 3,
+                                        userInfo: [NSLocalizedDescriptionKey: "Invalid server URL"])))
             return
         }
-
-        print("Initiating refund process for paymentIntentId: \(paymentIntentId), amount: \(amount)")
-
-        // Get the ID token asynchronously
+        
+        print("DEBUG: Initiating refund process for paymentIntentId: \(paymentIntentId), amount: \(amount)")
+        
+        // Get the ID token for the current user.
         Auth.auth().currentUser?.getIDToken { token, error in
             if let error = error {
-                print("Error getting ID token: \(error.localizedDescription)")
+                print("DEBUG: Error getting ID token: \(error.localizedDescription)")
                 completion(.failure(error))
                 return
             }
             
             guard let token = token else {
-                print("Failed to get authentication token")
-                completion(.failure(NSError(domain: "GoalViewModel", code: 6, userInfo: [NSLocalizedDescriptionKey: "Failed to get authentication token"])))
+                print("DEBUG: Failed to get authentication token")
+                completion(.failure(NSError(domain: "GoalViewModel", code: 6,
+                                            userInfo: [NSLocalizedDescriptionKey: "Failed to get authentication token"])))
                 return
             }
-
+            
+            print("DEBUG: Got token: \(token.prefix(10))... (truncated)")
+            
+            // Create the URLRequest.
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.addValue("application/json", forHTTPHeaderField: "Content-Type")
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
+            
             let body: [String: Any] = [
                 "paymentIntentId": paymentIntentId,
                 "amount": amount
             ]
-
+            
             do {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                print("Request body: \(body)")
+                print("DEBUG: Request body: \(body)")
             } catch {
-                print("Error creating request body: \(error.localizedDescription)")
+                print("DEBUG: Error creating request body: \(error.localizedDescription)")
                 completion(.failure(error))
                 return
             }
-
+            
+            // Create the URLSession data task.
             URLSession.shared.dataTask(with: request) { data, response, error in
                 if let error = error {
-                    print("Network error: \(error.localizedDescription)")
+                    print("DEBUG: Network error: \(error.localizedDescription)")
                     completion(.failure(error))
                     return
                 }
-
+                
                 if let httpResponse = response as? HTTPURLResponse {
-                    print("HTTP response status code: \(httpResponse.statusCode)")
+                    print("DEBUG: HTTP response status code: \(httpResponse.statusCode)")
                 }
-
+                
                 guard let data = data else {
-                    print("No data received from server")
-                    completion(.failure(NSError(domain: "GoalViewModel", code: 4, userInfo: [NSLocalizedDescriptionKey: "No data received from server"])))
+                    print("DEBUG: No data received from server")
+                    completion(.failure(NSError(domain: "GoalViewModel", code: 4,
+                                                userInfo: [NSLocalizedDescriptionKey: "No data received from server"])))
                     return
                 }
-
-                // Log the raw response data
+                
                 if let rawResponse = String(data: data, encoding: .utf8) {
-                    print("Raw server response: \(rawResponse)")
+                    print("DEBUG: Raw server response: \(rawResponse)")
                 } else {
-                    print("Unable to convert response data to string")
+                    print("DEBUG: Unable to convert response data to string")
                 }
-
+                
                 do {
                     if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        print("Parsed server response: \(json)")
+                        print("DEBUG: Parsed server response: \(json)")
                         if let success = json["success"] as? Bool, success {
-                            print("Refund successful")
+                            print("DEBUG: Refund successful")
                             completion(.success(()))
                         } else {
-                            print("Refund failed")
-                            completion(.failure(NSError(domain: "GoalViewModel", code: 5, userInfo: [NSLocalizedDescriptionKey: "Refund failed"])))
+                            print("DEBUG: Refund failed according to server")
+                            completion(.failure(NSError(domain: "GoalViewModel", code: 5,
+                                                        userInfo: [NSLocalizedDescriptionKey: "Refund failed"])))
                         }
                     } else {
-                        print("Invalid JSON response")
-                        completion(.failure(NSError(domain: "GoalViewModel", code: 7, userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])))
+                        print("DEBUG: Invalid JSON response")
+                        completion(.failure(NSError(domain: "GoalViewModel", code: 7,
+                                                    userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])))
                     }
                 } catch {
-                    print("Error parsing server response: \(error.localizedDescription)")
+                    print("DEBUG: Error parsing server response: \(error.localizedDescription)")
                     completion(.failure(error))
                 }
             }.resume()
         }
     }
+
     
     func updateGoal(_ updatedGoal: Goal) {
         if let index = goals.firstIndex(where: { $0.id == updatedGoal.id }) {

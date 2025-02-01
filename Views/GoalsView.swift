@@ -14,13 +14,13 @@ struct GoalsView: View {
                     }
                 }
                 if !futureGoals.isEmpty {
-                    Section(header: Text("Future Goals")) {
+                    Section(header: Text("Upcoming Goals")) {
                         goalList(goals: futureGoals)
                     }
                 }
-                if !pastGoals.isEmpty {
-                    Section(header: Text("Past Goals")) {
-                        goalList(goals: pastGoals)
+                if !pastAndCompletedGoals.isEmpty {
+                    Section(header: Text("Past & Completed Goals")) {
+                        goalList(goals: pastAndCompletedGoals)
                     }
                 }
             }
@@ -67,16 +67,23 @@ struct GoalsView: View {
     }
 
     private var currentGoals: [Goal] {
-        // same logic you had in contentView
-        let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter { goal in
-                let goalStartDate = Calendar.current.startOfDay(for: goal.startDate)
-                let goalEndDate = Calendar.current.startOfDay(for: goal.endDate)
-                return goalStartDate <= today && goalEndDate >= today
-            }
-            .sorted { $0.startDate < $1.startDate }
+        let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
+        return viewModel.goals.filter { goal in
+            // Compare using the local string representations
+            let isActiveToday = (goal.startDateLocalString <= todayString && goal.endDateLocalString >= todayString)
+            
+            // Count completions (verified or refunded) for the goal.
+            let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
+                .filter { $0.status == .verified || $0.status == .refunded }
+                .count) ?? 0
+            
+            let isCompleted = completedCount >= goal.requiredCompletions
+            
+            return isActiveToday && !isCompleted
+        }
+        .sorted { $0.startDate < $1.startDate }
     }
+
     
     private var futureGoals: [Goal] {
         let today = Calendar.current.startOfDay(for: Date())
@@ -88,15 +95,23 @@ struct GoalsView: View {
             .sorted { $0.startDate < $1.startDate }
     }
     
-    private var pastGoals: [Goal] {
-        let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter {
-                let goalEndDate = Calendar.current.startOfDay(for: $0.endDate)
-                return goalEndDate < today
-            }
-            .sorted { $0.startDate < $1.startDate }
+    private var pastAndCompletedGoals: [Goal] {
+        let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
+        return viewModel.goals.filter { goal in
+            // Count completions (verified or refunded)
+            let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
+                .filter { $0.status == .verified || $0.status == .refunded }
+                .count) ?? 0
+            
+            let isCompleted = completedCount >= goal.requiredCompletions
+            
+            // If the goal’s local end date is earlier than today, or if it is completed,
+            // it belongs in the Past & Completed section.
+            return goal.endDateLocalString < todayString || isCompleted
+        }
+        .sorted { $0.startDate < $1.startDate }
     }
+    
 }
 
 struct GoalRowView: View {
@@ -116,11 +131,9 @@ struct GoalRowView: View {
             }
             Spacer()
             VStack(alignment: .trailing) {
-                // The blue dot logic
+                // Replace the static Circle with PulsatingCircle
                 if shouldShowNotificationDot {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 10, height: 10)
+                    PulsatingCircle()
                 }
                 
                 // Completed/required ratio
@@ -144,48 +157,81 @@ struct GoalRowView: View {
 
     /// Decides if we show the blue dot for "pending" logic
     private var shouldShowNotificationDot: Bool {
-        // 1) Quick check if goal is active today
-        let today = Calendar.current.startOfDay(for: Date())
-        let startDay = Calendar.current.startOfDay(for: goal.startDate)
-        let endDay = Calendar.current.startOfDay(for: goal.endDate)
-        let isActiveGoal = (startDay <= today && endDay >= today)
+        // 1) Get today's LOCAL dateString
+        let todayDateString = Date().toStringLocal(format: "yyyy-MM-dd")
+        
+        // 2) Check if goal is active today using LOCAL dates
+        let isActiveGoal = goal.startDateLocalString <= todayDateString
+                        && goal.endDateLocalString >= todayDateString
         guard isActiveGoal else {
             return false
         }
         
-        // 2) Retrieve completions for this goal
+        // 3) Retrieve completions
         guard let goalId = goal.id,
               let completions = viewModel.completionsByGoal[goalId] else {
             return false
         }
         
-        // 3) Filter completions that match "today"
+        // 4) Filter completions with TODAY'S LOCAL dateString
         let todayCompletions = completions.filter {
-            Calendar.current.isDate($0.date, inSameDayAs: today)
+            $0.dateString == todayDateString
         }
         
-        // 4) Option B: Show the dot **only** if there's at least one `.nonSubmitted` doc
-        let hasNonSubmittedDocToday = todayCompletions.contains { $0.status == .nonSubmitted }
-        
-        switch goal.frequency {
-        case .daily:
-            // Show dot if there's a `.nonSubmitted` doc for today
-            return hasNonSubmittedDocToday
-            
-        case .xDays:
-            // Typically, you'd do the same check:
-            return hasNonSubmittedDocToday
-            
-        case .weekdays:
-            // Also check if today is a weekday
-            let isWeekday = !Calendar.current.isDateInWeekend(today)
-            return isWeekday && hasNonSubmittedDocToday
-            
-        case .weekends:
-            // Also check if today is a weekend
-            let isWeekend = Calendar.current.isDateInWeekend(today)
-            return isWeekend && hasNonSubmittedDocToday
+        // 5) Check for successful completions first
+        let hasSuccessfulCompletion = todayCompletions.contains {
+            $0.status == .verified || $0.status == .refunded || $0.status == .pendingVerification
         }
+        
+        // 6) Check for non-submitted docs
+        let hasNonSubmittedDocToday = todayCompletions.contains {
+            $0.status == .nonSubmitted
+        }
+        
+        // 7) Check if we've already met required completions
+        let completedCount = completedCompletionsCount
+        let hasMetRequiredCompletions = completedCount >= goal.requiredCompletions
+        
+        // 8) Frequency check
+        let calendar = Calendar.current
+        let localToday = Date() // Already in local time
+        let isFrequencyMatch: Bool = {
+            switch goal.frequency {
+            case .daily:
+                return true
+            case .xDays:
+                // Only show if:
+                // - Has non-submitted doc today
+                // - Hasn't met required completions
+                return !hasMetRequiredCompletions && hasNonSubmittedDocToday
+            case .weekdays:
+                return !calendar.isDateInWeekend(localToday)
+            case .weekends:
+                return calendar.isDateInWeekend(localToday)
+            }
+        }()
+        
+        return isFrequencyMatch && !hasSuccessfulCompletion
+    }
+}
+
+struct PulsatingCircle: View {
+    @State private var isAnimating = false
+    
+    var body: some View {
+        Circle()
+            .fill(Color.blue)
+            .frame(width: 10, height: 10)
+            .scaleEffect(isAnimating ? 1.1 : 1.2)
+            .opacity(isAnimating ? 0.5 : 1.0)
+            .animation(
+                Animation.easeInOut(duration: 1)
+                    .repeatForever(autoreverses: true),
+                value: isAnimating
+            )
+            .onAppear {
+                self.isAnimating = true
+            }
     }
 }
 
@@ -197,5 +243,14 @@ extension Calendar {
     func isDateInWeekend(_ date: Date) -> Bool {
         let weekday = self.component(.weekday, from: date)
         return weekday == 1 || weekday == 7
+    }
+}
+
+extension Date {
+    func toStringLocal(format: String) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = format
+        formatter.timeZone = TimeZone.current // Local timezone
+        return formatter.string(from: self)
     }
 }

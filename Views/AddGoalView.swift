@@ -16,7 +16,7 @@ struct AddGoalView: View {
     @State private var startDate = Date()
     @State private var endDate = Date().addingTimeInterval(86400 * 7)
     @State private var requiredCompletions = 1
-    @State private var verificationMethod: Goal.VerificationMethod = .selfVerify
+    @State private var verificationMethod: Goal.VerificationMethod = .photoVerification
     @State private var agreementChecked = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
@@ -268,29 +268,35 @@ struct AddGoalView: View {
     }
     
     private func addGoal() {
-        if let amountPerSuccess = Double(amountPerSuccess) {
-            let requiredCompletions: Int
+        if let amountPerSuccessValue = Double(amountPerSuccess) {
+            let requiredCompletionsValue: Int
             switch frequency {
             case .daily:
-                requiredCompletions = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
+                requiredCompletionsValue = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
             case .weekdays:
-                requiredCompletions = countWeekdays(from: startDate, to: endDate)
+                requiredCompletionsValue = countWeekdays(from: startDate, to: endDate)
             case .weekends:
-                requiredCompletions = countWeekends(from: startDate, to: endDate)
+                requiredCompletionsValue = countWeekends(from: startDate, to: endDate)
             case .xDays:
-                requiredCompletions = self.requiredCompletions
+                requiredCompletionsValue = self.requiredCompletions
             }
-            viewModel.addGoal(title: title,
-              frequency: frequency,
-              amountPerSuccess: amountPerSuccess,
-              startDate: startDate,
-              endDate: endDate,
-              requiredCompletions: requiredCompletions,
-              verificationMethod: verificationMethod,
-              currency: userManager.currentCurrency,
-              paymentIntentId: paymentViewModel.paymentIntentId) // Pass paymentIntentId
+            
+            // Note: We pass selectedXDays only when frequency is xDays.
+            viewModel.addGoal(
+                title: title,
+                frequency: frequency,
+                amountPerSuccess: amountPerSuccessValue,
+                startDate: startDate,
+                endDate: endDate,
+                requiredCompletions: requiredCompletionsValue,
+                verificationMethod: verificationMethod,
+                currency: userManager.currentCurrency,
+                paymentIntentId: paymentViewModel.paymentIntentId,
+                selectedXDays: frequency == .xDays ? requiredCompletions : nil
+            )
         }
     }
+
 }
 
 struct CheckboxToggleStyle: ToggleStyle {

@@ -15,8 +15,11 @@ struct GoalDetailView: View {
         List {
             // Same "Goal Details" section
             Section(header: Text("Goal Details")) {
-                Text("Title: \(goal.title)")
                 Text("Frequency: \(goal.frequency.rawValue)")
+                if goal.frequency == .xDays, let xDays = goal.selectedXDays {
+                    Text("Required Completions: \(xDays)")
+                }
+                Text("Verification Method: \(goal.verificationMethod.rawValue)")
                 Text("Amount per Success: \(CurrencyHelper.format(amount: goal.amountPerSuccess, currencyCode: goal.currency ?? "USD"))")
                 Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
                 Text("Earned Amount: \(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD"))")
@@ -126,6 +129,15 @@ struct GoalDetailView: View {
 
         // 2) Compare with 'today'
         let today = Calendar.current.startOfDay(for: Date())
+        
+        let isXDaysCompleted = (goal.frequency == .xDays) &&
+                              (completedCompletionsCount >= goal.requiredCompletions)
+        
+        if isXDaysCompleted && (completion.status != .verified && completion.status != .refunded) {
+            return AnyView(Text("Completed")
+                .italic()
+                .foregroundColor(.gray))
+        }
 
         switch completion.status {
         case .nonSubmitted:
@@ -153,7 +165,19 @@ struct GoalDetailView: View {
         case .pendingVerification:
             return AnyView(Text("Pending Verification").italic().foregroundColor(.gray))
         case .verified:
-            return AnyView(Text("Verified").italic().foregroundColor(.green))
+            return AnyView(
+                HStack(spacing: 8) { // Increased spacing for better appearance
+                    Text("Verified")
+                        .italic()
+                        .foregroundColor(.green)
+                    CustomLoader(
+                        size: 12, // Increased size
+                        lineWidth: 1, // Thicker line for visibility
+                        color: .green,
+                        rotationDuration: 3 // Slower rotation
+                    )
+                }
+            )
         case .refunded:
             return AnyView(Text("Refunded").italic().foregroundColor(.green))
         case .refundFailed:
@@ -173,6 +197,15 @@ struct GoalDetailView: View {
         }
 
         let today = Calendar.current.startOfDay(for: Date())
+        
+        let isXDaysCompleted = (goal.frequency == .xDays) &&
+                              (completedCompletionsCount >= goal.requiredCompletions)
+        
+        if isXDaysCompleted {
+            return AnyView(Text("Completed")
+                .italic()
+                .foregroundColor(.gray))
+        }
 
         if localDate < today {
             // Past => missed
@@ -265,8 +298,9 @@ struct GoalDetailView: View {
     private func getDayStringsRange() -> [String] {
         let calendar = Calendar.current
         let localStart = calendar.startOfDay(for: goal.startDate)
-        let localEnd   = calendar.startOfDay(for: goal.endDate)
+        let localEnd = calendar.startOfDay(for: goal.endDate)
         
+        // Determine the total number of days between start and end dates.
         guard let totalDays = calendar.dateComponents([.day], from: localStart, to: localEnd).day else {
             return []
         }
@@ -275,7 +309,7 @@ struct GoalDetailView: View {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = .current
         
-        // 1) Build *all* days from start to end
+        // Build an array of all dates from start to end.
         var allDates: [Date] = []
         for offset in 0...totalDays {
             if let thisDay = calendar.date(byAdding: .day, value: offset, to: localStart) {
@@ -283,22 +317,23 @@ struct GoalDetailView: View {
             }
         }
         
-        // 2) Filter out days that do not match the frequency
+        // Filter dates based on frequency.
         let filteredDates: [Date]
         switch goal.frequency {
         case .daily, .xDays:
-            filteredDates = allDates  // no filtering
-
+            filteredDates = allDates
         case .weekdays:
             filteredDates = allDates.filter { !calendar.isDateInWeekend($0) }
-
         case .weekends:
             filteredDates = allDates.filter { calendar.isDateInWeekend($0) }
         }
         
-        // 3) Convert to day strings
-        return filteredDates.map { formatter.string(from: $0) }
+        // Convert the filtered dates to strings.
+        let dateStrings = filteredDates.map { formatter.string(from: $0) }
+        
+        return dateStrings
     }
+
     
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -312,6 +347,16 @@ struct GoalDetailView: View {
     
     private func isPast(_ date: Date) -> Bool {
         date < Calendar.current.startOfDay(for: Date())
+    }
+    
+    private var completedCompletionsCount: Int {
+        guard let goalId = goal.id,
+              let completions = viewModel.completionsByGoal[goalId] else {
+            return 0
+        }
+        return completions.filter {
+            $0.status == .verified || $0.status == .refunded
+        }.count
     }
     
     /// Refresh the local `goal` data from the viewModel so we stay in sync.
@@ -328,5 +373,31 @@ struct GoalDetailView: View {
         df.dateFormat = "yyyy-MM-dd"
         df.timeZone = .current  // or omit since .current is default
         return df.date(from: dayString)
+    }
+}
+
+struct CustomLoader: View {
+    @State private var isAnimating = false
+    
+    // Parameters to adjust size and rotation speed
+    var size: CGFloat = 20
+    var lineWidth: CGFloat = 2
+    var color: Color = .green
+    var rotationDuration: Double = 2 // Duration for a full 360° rotation
+    
+    var body: some View {
+        Circle()
+            .trim(from: 0.0, to: 0.7) // Creates a partial circle for the spinner effect
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            .frame(width: size, height: size)
+            .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
+            .animation(
+                Animation.linear(duration: rotationDuration)
+                    .repeatForever(autoreverses: false),
+                value: isAnimating
+            )
+            .onAppear {
+                self.isAnimating = true
+            }
     }
 }

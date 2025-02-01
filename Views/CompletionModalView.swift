@@ -101,32 +101,26 @@ struct CompletionModalView: View {
 
                 // Now the "Submit" button (blue background, white text)
                 if image != nil {
-                    Button("Submit") {
+                    Button("Submit", action: {
                         uploadPhotoAndAddCompletion()
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(adminApprovalToggle ? Color.blue : Color.gray)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                    })
+                    .buttonStyle(FullClickableButtonStyle(backgroundColor: adminApprovalToggle ? .blue : .gray))
                     .disabled(!adminApprovalToggle || isUploading)
                 }
                 
             } else {
+                Spacer().frame(height: 160)
+                
                 // The selfVerify approach:
                 Text("I swear on my honor that I have achieved my goal and deserve my money back.")
                     .font(.body)
                     .padding(.bottom, 5)
                     .multilineTextAlignment(.center)
                 
-                Button("I swear") {
+                Button("I swear", action: {
                     confirmCompletion()
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(10)
+                })
+                .buttonStyle(FullClickableButtonStyle(backgroundColor: .blue))
                 .disabled(isUploading)
             }
 
@@ -363,5 +357,22 @@ struct ResponsibilityCheckboxToggleStyle: ToggleStyle {
                 }
             configuration.label
         }
+    }
+}
+
+struct FullClickableButtonStyle: ButtonStyle {
+    var backgroundColor: Color
+    var pressedColor: Color? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)  // Expand label horizontally
+            .padding()
+            .background(configuration.isPressed
+                            ? (pressedColor ?? backgroundColor.opacity(0.7))
+                            : backgroundColor)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+            .contentShape(Rectangle()) // Makes entire rectangular area tappable
     }
 }
