@@ -17,8 +17,8 @@ struct AdminPhotoVerificationView: View {
         Group {
             if isLoading {
                 ProgressView("Loading...")
-            } else if let goal = goal, let _ = completion {
-                // Always show the goal title and then either the image or an error message.
+            } else if goal != nil && completion != nil {
+                // Both goal and completion are non-nil—show the content view.
                 contentViewForGoal()
             } else {
                 Text("Failed to load data")

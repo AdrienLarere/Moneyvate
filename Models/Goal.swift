@@ -13,6 +13,7 @@ struct Goal: Identifiable, Codable {
     var verificationMethod: VerificationMethod
     var paymentIntentId: String?
     var currency: String?
+    var manuallyRefunded: Bool?
     
     // NEW: Only applicable when frequency == .xDays
     var selectedXDays: Int?
@@ -54,9 +55,9 @@ struct Goal: Identifiable, Codable {
     
     // Only list the fields that actually exist on the Goal doc
     enum CodingKeys: String, CodingKey {
-            case id, userId, title, frequency, amountPerSuccess, startDate, endDate,
-                 totalAmount, verificationMethod, paymentIntentId, currency, selectedXDays
-        }
+        case id, userId, title, frequency, amountPerSuccess, startDate, endDate,
+             totalAmount, verificationMethod, paymentIntentId, currency, selectedXDays, manuallyRefunded
+    }
 
     init(id: String? = nil,
          userId: String,
@@ -69,7 +70,8 @@ struct Goal: Identifiable, Codable {
          verificationMethod: VerificationMethod,
          currency: String?,
          paymentIntentId: String? = nil,
-         selectedXDays: Int? = nil) {
+         selectedXDays: Int? = nil,
+         manuallyRefunded: Bool = false) {
         self.id = id
         self.userId = userId
         self.title = title
@@ -82,6 +84,7 @@ struct Goal: Identifiable, Codable {
         self.currency = currency
         self.paymentIntentId = paymentIntentId
         self.selectedXDays = selectedXDays
+        self.manuallyRefunded = manuallyRefunded
     }
 }
 
@@ -89,7 +92,10 @@ struct Goal: Identifiable, Codable {
 extension Goal {
     /// The total count of days from start to end
     var numberOfDays: Int {
-        let days = Calendar.current.dateComponents([.day], from: startDate, to: endDate).day ?? 0
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+        let days = calendar.dateComponents([.day], from: start, to: end).day ?? 0
         return days + 1
     }
     

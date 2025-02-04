@@ -20,9 +20,15 @@ struct GoalDetailView: View {
                     Text("Required Completions: \(xDays)")
                 }
                 Text("Verification Method: \(goal.verificationMethod.rawValue)")
-                Text("Amount per Success: \(CurrencyHelper.format(amount: goal.amountPerSuccess, currencyCode: goal.currency ?? "USD"))")
-                Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
-                Text("Earned Amount: \(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD"))")
+                
+                if goal.manuallyRefunded ?? false {
+                    Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                    Text("Total Refunded: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                } else {
+                    Text("Amount per Success: \(CurrencyHelper.format(amount: goal.amountPerSuccess, currencyCode: goal.currency ?? "USD"))")
+                    Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                    Text("Earned Amount: \(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD"))")
+                }
             }
             
             Section(header: Text("Progress")) {
@@ -110,6 +116,11 @@ struct GoalDetailView: View {
     
     /// A more nuanced approach to handle .nonSubmitted logic
     private func completionStatusView(for dayString: String) -> some View {
+        if goal.manuallyRefunded ?? false {
+            return AnyView(Text("Manually Refunded")
+                .italic()
+                .foregroundColor(.green))
+        }
         // Check if we have a doc for that dayString
         if let completion = completionForDayString(dayString) {
             return AnyView(viewForExistingCompletion(completion, dayString: dayString))

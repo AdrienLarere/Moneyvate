@@ -81,16 +81,13 @@ struct GoalsView: View {
     private var currentGoals: [Goal] {
         let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
         return viewModel.goals.filter { goal in
-            // Compare using the local string representations
+            // Exclude manually refunded goals.
+            if goal.manuallyRefunded ?? false { return false }
             let isActiveToday = (goal.startDateLocalString <= todayString && goal.endDateLocalString >= todayString)
-            
-            // Count completions (verified or refunded) for the goal.
             let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
                 .filter { $0.status == .verified || $0.status == .refunded }
                 .count) ?? 0
-            
             let isCompleted = completedCount >= goal.requiredCompletions
-            
             return isActiveToday && !isCompleted
         }
         .sorted { $0.startDate < $1.startDate }
@@ -99,27 +96,24 @@ struct GoalsView: View {
     
     private var futureGoals: [Goal] {
         let today = Calendar.current.startOfDay(for: Date())
-        return viewModel.goals
-            .filter {
-                let goalStartDate = Calendar.current.startOfDay(for: $0.startDate)
-                return goalStartDate > today
-            }
-            .sorted { $0.startDate < $1.startDate }
+        return viewModel.goals.filter {
+            if $0.manuallyRefunded ?? false { return false }
+            let goalStartDate = Calendar.current.startOfDay(for: $0.startDate)
+            return goalStartDate > today
+        }
+        .sorted { $0.startDate < $1.startDate }
     }
+
     
     private var pastAndCompletedGoals: [Goal] {
         let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
         return viewModel.goals.filter { goal in
-            // Count completions (verified or refunded)
             let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
                 .filter { $0.status == .verified || $0.status == .refunded }
                 .count) ?? 0
-            
             let isCompleted = completedCount >= goal.requiredCompletions
-            
-            // If the goal’s local end date is earlier than today, or if it is completed,
-            // it belongs in the Past & Completed section.
-            return goal.endDateLocalString < todayString || isCompleted
+            // Include if manually refunded OR end date is before today OR goal is completed.
+            return (goal.manuallyRefunded ?? false) || goal.endDateLocalString < todayString || isCompleted
         }
         .sorted { $0.startDate < $1.startDate }
     }
@@ -136,22 +130,35 @@ struct GoalRowView: View {
                 Text(goal.title)
                     .font(.headline)
                 
-                // Show how much earned vs total
-                Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                // Show money earned vs. total.
+                // If the goal is manually refunded, show "total / total".
+                if goal.manuallyRefunded ?? false {
+                    Text("\(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
             }
             Spacer()
             VStack(alignment: .trailing) {
-                // Replace the static Circle with PulsatingCircle
                 if shouldShowNotificationDot {
                     PulsatingCircle()
                 }
                 
-                // Completed/required ratio
-                Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                // Show completions ratio.
+                // If the goal is manually refunded, show "total completions / total completions"
+                if goal.manuallyRefunded ?? false {
+                    Text("\(goal.requiredCompletions)/\(goal.requiredCompletions)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(completedCompletionsCount)/\(goal.requiredCompletions)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }
@@ -169,6 +176,9 @@ struct GoalRowView: View {
 
     /// Decides if we show the blue dot for "pending" logic
     private var shouldShowNotificationDot: Bool {
+        // 0) No notification dot if manually refunded
+        if goal.manuallyRefunded ?? false { return false }
+        
         // 1) Get today's LOCAL dateString
         let todayDateString = Date().toStringLocal(format: "yyyy-MM-dd")
         

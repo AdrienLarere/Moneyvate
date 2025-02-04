@@ -556,6 +556,46 @@ class GoalViewModel: ObservableObject {
                 }
             }
     }
+    
+    
+    func triggerFullRefund(for goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
+        // Calculate the remaining amount to refund.
+        let earned = earnedAmount(for: goal)
+        let remainingAmountFloat = goal.totalAmount - earned
+        // Assuming your Stripe server expects the amount in cents:
+        let remainingAmountCents = Int(remainingAmountFloat * 100)
+        
+        guard let paymentIntentId = goal.paymentIntentId else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Missing paymentIntentId"])))
+            return
+        }
+        
+        print("Triggering full refund for goal \(goal.title): remaining \(remainingAmountCents) cents")
+        
+        // Call your existing refund helper. (Ensure processRefund exists.)
+        processRefund(paymentIntentId: paymentIntentId, amount: remainingAmountCents) { result in
+            completion(result)
+        }
+    }
+    
+    
+    func markGoalAsManuallyRefunded(_ goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let userId = goal.userId, let goalId = goal.id else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 2,
+                                        userInfo: [NSLocalizedDescriptionKey: "Missing userId or goalId"])))
+            return
+        }
+        
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        goalRef.updateData(["manuallyRefunded": true]) { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
 
     
     func earnedAmount(for goal: Goal) -> Double {

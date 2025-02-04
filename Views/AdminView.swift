@@ -7,6 +7,7 @@ import FirebaseFirestore
 struct AdminView: View {
     @StateObject private var viewModel = AdminViewModel()
     @State private var selectedCompletionRef: IdentifiableReference?
+    @EnvironmentObject var userManager: UserManager
     
     var body: some View {
         NavigationView {
@@ -55,6 +56,15 @@ struct AdminView: View {
                 AdminPhotoVerificationView(ref: wrapper.ref, viewModel: viewModel)
             }
             .navigationTitle("Admin")
+            .toolbar {
+            // Bottom toolbar item that navigates to the full refund workflow.
+            ToolbarItem(placement: .bottomBar) {
+                NavigationLink(destination: AdminUsersView().environmentObject(userManager)) {
+                        Text("View Users")
+                            .font(.headline)
+                    }
+            }
+        }
         }
     }
 }
