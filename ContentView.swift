@@ -5,21 +5,22 @@ import FirebaseStorage
 struct ContentView: View {
     @EnvironmentObject var viewModel: GoalViewModel
     @EnvironmentObject var userManager: UserManager
-    @State private var isShowingSignUp = false
+
+    // We'll store actual objects
+    @State private var refundedPIs: [RefundedPaymentIntent] = []
+    @State private var showRefundAlert = false
     
+    @State private var isShowingSignUp = false
+
     var body: some View {
         Group {
-            // 1) Are we authenticated?
             if userManager.isAuthenticated {
-                // 2) Is their email verified?
                 if userManager.isEmailVerified {
-                    // 3) Show admin or normal goals
                     mainView
                 } else {
                     EmailVerificationView()
                 }
             } else {
-                // 4) If not authenticated
                 if userManager.isNewUser {
                     EmailVerificationView()
                 } else {
@@ -32,12 +33,54 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     self.viewModel.fetchGoals()
                 }
+                
+                // Check/refund missing PaymentIntents
+                userManager.checkAndRefundMissingGoalPayments { refundedObjects in
+                    if !refundedObjects.isEmpty {
+                        DispatchQueue.main.async {
+                            self.refundedPIs = refundedObjects
+                            self.showRefundAlert = true
+                        }
+                    }
+                }
             } else {
                 DispatchQueue.main.async {
                     self.viewModel.clearGoals()
                 }
             }
         }
+        // The alert
+        .alert("Payment Refunded", isPresented: $showRefundAlert) {
+            Button("OK") { }
+        } message: {
+            Text(refundMessage)
+        }
+    }
+    
+    // MARK: - Refund Alert Message
+    private var refundMessage: String {
+        // Sum all amounts and convert to a float
+        let totalCents = refundedPIs.reduce(0) { $0 + $1.amount }
+        let currency = refundedPIs.first?.currency.uppercased() ?? "USD" // or adapt
+        let totalDecimal = Double(totalCents) / 100.0
+        
+        // PaymentIntent IDs as comma-separated
+        let idsList = refundedPIs.map { $0.id }.joined(separator: ", ")
+        
+        return """
+        
+        Something went wrong for a goal you attempted to create:
+        
+        The payment went through but the goal was not created.
+        
+        As such, we've automatically refunded the full payment of \(String(format: "%.2f", totalDecimal)) \(currency).
+        
+        Your money is already on its way back to you.
+        
+        We apologize for the inconvenience,
+        
+        The Moneyvate Team
+        """
     }
     
     private var signInView: some View {

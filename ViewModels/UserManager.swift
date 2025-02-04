@@ -101,6 +101,68 @@ class UserManager: NSObject, ObservableObject {
         }
     }
     
+    func checkAndRefundMissingGoalPayments(completion: @escaping ([RefundedPaymentIntent]) -> Void) {
+        guard let user = Auth.auth().currentUser else {
+            completion([])
+            return
+        }
+        
+        user.getIDToken { token, error in
+            if let error = error {
+                print("Error fetching ID token: \(error.localizedDescription)")
+                completion([])
+                return
+            }
+            
+            guard let token = token,
+                  let url = URL(string: "\(AppConfig.serverURL)/check-and-refund-missing-goal") else {
+                completion([])
+                return
+            }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("Network error: \(error.localizedDescription)")
+                    completion([])
+                    return
+                }
+                guard let data = data else {
+                    print("No data returned from check-and-refund")
+                    completion([])
+                    return
+                }
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let refundedArray = json["refunded"] as? [[String: Any]] {
+                        
+                        // Map into a local struct
+                        let refundedObjects = refundedArray.compactMap { dict -> RefundedPaymentIntent? in
+                            guard let id = dict["id"] as? String,
+                                  let amount = dict["amount"] as? Int,
+                                  let currency = dict["currency"] as? String
+                            else { return nil }
+                            return RefundedPaymentIntent(id: id, amount: amount, currency: currency)
+                        }
+                        
+                        completion(refundedObjects)
+                    } else {
+                        print("No 'refunded' array in server response.")
+                        completion([])
+                    }
+                } catch {
+                    print("Error parsing JSON: \(error.localizedDescription)")
+                    completion([])
+                }
+            }.resume()
+        }
+    }
+
+    
     func signInWithApple(completion: @escaping (Result<User, Error>) -> Void) {
         let nonce = randomNonceString()
         currentNonce = nonce
@@ -249,6 +311,12 @@ class UserManager: NSObject, ObservableObject {
         
         return hashString
     }
+}
+
+struct RefundedPaymentIntent {
+    let id: String
+    let amount: Int  // in cents
+    let currency: String
 }
 
 extension UserManager: ASAuthorizationControllerDelegate {

@@ -20,23 +20,36 @@ class GoalViewModel: ObservableObject {
         fetchGoals()
     }
     
-    func addGoal(title: String,
-                 frequency: Goal.Frequency,
-                 amountPerSuccess: Double,
-                 startDate: Date,
-                 endDate: Date,
-                 requiredCompletions: Int,
-                 verificationMethod: Goal.VerificationMethod,
-                 currency: String,
-                 paymentIntentId: String?,
-                 selectedXDays: Int? = nil) {
-                 
+    func addGoal(
+        title: String,
+        frequency: Goal.Frequency,
+        amountPerSuccess: Double,
+        startDate: Date,
+        endDate: Date,
+        requiredCompletions: Int,
+        verificationMethod: Goal.VerificationMethod,
+        currency: String,
+        paymentIntentId: String? = nil,
+        selectedXDays: Int? = nil
+    ) -> Goal? {
+        // 1) Ensure we have an authenticated user
+        guard let userId = Auth.auth().currentUser?.uid else {
+            print("No authenticated user.")
+            return nil
+        }
+        
         let totalAmount = Double(requiredCompletions) * amountPerSuccess
-        guard let userId = Auth.auth().currentUser?.uid else { return }
-        print("Current user UID: \(userId)")
-
+        
+        // 2) Generate a new Firestore doc reference so we have the docID
+        let goalRef = db.collection("users")
+                        .document(userId)
+                        .collection("goals")
+                        .document()
+        
+        // 3) Build a Goal with that docID
+        let docId = goalRef.documentID
         let newGoal = Goal(
-            id: nil,
+            id: docId,
             userId: userId,
             title: title,
             frequency: frequency,
@@ -47,21 +60,16 @@ class GoalViewModel: ObservableObject {
             verificationMethod: verificationMethod,
             currency: currency,
             paymentIntentId: paymentIntentId,
-            selectedXDays: selectedXDays   // Pass the selectedXDays value
+            selectedXDays: selectedXDays
         )
         
+        // 4) Write the Goal to Firestore
         do {
-            // 1) Add the goal doc
-            let goalRef = try db.collection("users")
-                .document(userId)
-                .collection("goals")
-                .addDocument(from: newGoal)
-            
-            // 2) Retrieve the newly created doc's ID
-            let docId = goalRef.documentID
+            // This sets the entire document data from `newGoal`
+            try goalRef.setData(from: newGoal)
             print("Successfully created goal doc with ID: \(docId)")
             
-            // 3) Immediately create the sub-collection docs
+            // 5) Optionally create initial completions right away
             createInitialCompletions(
                 userId: userId,
                 goalId: docId,
@@ -73,8 +81,12 @@ class GoalViewModel: ObservableObject {
                 verificationMethod: verificationMethod
             )
             
+            // 6) Return the new Goal (with an actual ID!)
+            return newGoal
+            
         } catch {
             print("Error adding goal: \(error.localizedDescription)")
+            return nil
         }
     }
 

@@ -53,35 +53,52 @@ class PaymentViewModel: ObservableObject {
         }
     }
     
-    func createPaymentIntent(amount: Int, currencyCode: String, completion: @escaping (Bool) -> Void) {
-            print("Creating payment intent for amount: \(amount) in currency: \(currencyCode)")
-            isLoading = true
-            errorMessage = nil
-            
-            let baseURL = "\(AppConfig.serverURL)"
-            let endpoint = "/create-payment-intent"
-            let urlString = baseURL + endpoint
-            
-            guard let url = URL(string: urlString), let idToken = idToken else {
-                print("Invalid URL or missing ID token")
-                errorMessage = "Invalid URL or authentication error"
-                completion(false)
-                return
-            }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(AppConfig.environment == .production ? "production" : "development", forHTTPHeaderField: "X-Environment")
-            
-            let body: [String: Any] = ["amount": amount, "currency": currencyCode]
-            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-            
-            URLSession.shared.dataTask(with: request) { [weak self] (data, response, error) in
-                DispatchQueue.main.async {
-                    self?.isLoading = false
+    func createPaymentIntent(amount: Int,
+                             currencyCode: String,
+                             completion: @escaping (Bool) -> Void)
+    {
+        guard let user = Auth.auth().currentUser else {
+            print("No authenticated user found.")
+            completion(false)
+            return
+        }
+        
+        print("Creating payment intent for amount: \(amount) in currency: \(currencyCode)")
+        isLoading = true
+        errorMessage = nil
+        
+        let baseURL = "\(AppConfig.serverURL)"
+        let endpoint = "/create-payment-intent"
+        let urlString = baseURL + endpoint
+        
+        guard let url = URL(string: urlString), let idToken = idToken else {
+            print("Invalid URL or missing ID token")
+            errorMessage = "Invalid URL or authentication error"
+            completion(false)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(AppConfig.environment == .production ? "production" : "development",
+                         forHTTPHeaderField: "X-Environment")
+        
+        // 1) Only pass the userId in metadata for now
+        let body: [String: Any] = [
+            "amount": amount,
+            "currency": currencyCode,
+            "metadata": [
+                "userId": user.uid
+            ]
+        ]
+        
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
                 if let error = error {
                     print("Network error: \(error.localizedDescription)")
                     self?.handleError(message: "Network error: \(error.localizedDescription)")
@@ -153,6 +170,50 @@ class PaymentViewModel: ObservableObject {
             }
         }.resume()
     }
+    
+    // In PaymentViewModel.swift
+    func updatePaymentIntentWithGoalId(goalId: String,
+                                       paymentIntentId: String,
+                                       completion: @escaping (Bool) -> Void)
+    {
+        guard let url = URL(string: "\(AppConfig.serverURL)/update-payment-intent-metadata"),
+              let idToken = idToken else {
+            print("Invalid URL or missing ID token.")
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(idToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(AppConfig.environment == .production ? "production" : "development",
+                         forHTTPHeaderField: "X-Environment")
+
+        let body: [String: Any] = [
+            "paymentIntentId": paymentIntentId,
+            "goalId": goalId
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("Error updating PaymentIntent metadata: \(error.localizedDescription)")
+                completion(false)
+                return
+            }
+
+            // Optionally parse server response
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                print("Successfully updated PaymentIntent with goalId: \(goalId)")
+                completion(true)
+            } else {
+                print("Failed to update PaymentIntent with goalId: \(goalId)")
+                completion(false)
+            }
+        }.resume()
+    }
+
     
     func refundPayment(paymentIntentId: String, amount: Int, completion: @escaping (Bool, String?) -> Void) {
         guard isNetworkAvailable else {

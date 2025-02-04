@@ -237,19 +237,37 @@ struct AddGoalView: View {
     }
     
     private func handlePaymentResult(success: Bool, error: String?) {
-        DispatchQueue.main.async {
-            self.showingPaymentSheet = false
-            self.showingApplePay = false
-            
-            if success {
-                self.addGoal()
-                self.showAlert(title: "Success", message: "Payment completed and goal added!")
-                self.isPresented = false
-            } else {
-                self.showAlert(title: "Payment Failed", message: error ?? "Unknown error occurred")
+        self.showingPaymentSheet = false
+        self.showingApplePay = false
+
+        if success {
+            // 1) Create the goal in Firestore
+            if let newlyCreatedGoal = self.addGoal(),
+               let goalId = newlyCreatedGoal.id,
+               let paymentIntentId = paymentViewModel.paymentIntentId {
+               
+                // 2) Call the PaymentViewModel function to update metadata
+                paymentViewModel.updatePaymentIntentWithGoalId(
+                    goalId: goalId,
+                    paymentIntentId: paymentIntentId
+                ) { updateSuccess in
+                    if updateSuccess {
+                        print("PaymentIntent metadata updated with goalId successfully!")
+                    } else {
+                        print("Failed to update PaymentIntent with goalId.")
+                        // Possibly show an alert or handle as needed
+                    }
+                }
             }
+            
+            // Show success alert
+            self.showAlert(title: "Success", message: "Payment completed and goal added!")
+            self.isPresented = false
+        } else {
+            self.showAlert(title: "Payment Failed", message: error ?? "Unknown error occurred")
         }
     }
+
 
     private func presentPaymentSheet() {
         if paymentViewModel.stripePaymentSheet != nil {
@@ -267,34 +285,36 @@ struct AddGoalView: View {
         showingAlert = true
     }
     
-    private func addGoal() {
-        if let amountPerSuccessValue = Double(amountPerSuccess) {
-            let requiredCompletionsValue: Int
-            switch frequency {
-            case .daily:
-                requiredCompletionsValue = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
-            case .weekdays:
-                requiredCompletionsValue = countWeekdays(from: startDate, to: endDate)
-            case .weekends:
-                requiredCompletionsValue = countWeekends(from: startDate, to: endDate)
-            case .xDays:
-                requiredCompletionsValue = self.requiredCompletions
-            }
-            
-            // Note: We pass selectedXDays only when frequency is xDays.
-            viewModel.addGoal(
-                title: title,
-                frequency: frequency,
-                amountPerSuccess: amountPerSuccessValue,
-                startDate: startDate,
-                endDate: endDate,
-                requiredCompletions: requiredCompletionsValue,
-                verificationMethod: verificationMethod,
-                currency: userManager.currentCurrency,
-                paymentIntentId: paymentViewModel.paymentIntentId,
-                selectedXDays: frequency == .xDays ? requiredCompletions : nil
-            )
+    private func addGoal() -> Goal? {
+        guard let amountPerSuccessValue = Double(amountPerSuccess) else { return nil }
+
+        let requiredCompletionsValue: Int
+        switch frequency {
+        case .daily:
+            requiredCompletionsValue = Calendar.current.numberOfDaysBetween(startDate, and: endDate)
+        case .weekdays:
+            requiredCompletionsValue = countWeekdays(from: startDate, to: endDate)
+        case .weekends:
+            requiredCompletionsValue = countWeekends(from: startDate, to: endDate)
+        case .xDays:
+            requiredCompletionsValue = self.requiredCompletions
         }
+
+        // 1) Now `viewModel.addGoal` returns a Goal?
+        let newGoal = viewModel.addGoal(
+            title: title,
+            frequency: frequency,
+            amountPerSuccess: amountPerSuccessValue,
+            startDate: startDate,
+            endDate: endDate,
+            requiredCompletions: requiredCompletionsValue,
+            verificationMethod: verificationMethod,
+            currency: userManager.currentCurrency,
+            paymentIntentId: paymentViewModel.paymentIntentId,
+            selectedXDays: frequency == .xDays ? requiredCompletions : nil
+        )
+
+        return newGoal
     }
 
 }
