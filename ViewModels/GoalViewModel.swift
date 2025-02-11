@@ -592,6 +592,29 @@ class GoalViewModel: ObservableObject {
     }
     
     
+    func triggerLateDeletionRefund(for goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
+        let earned = earnedAmount(for: goal)
+        let remaining = goal.totalAmount - earned
+        let tenPercent = goal.totalAmount * 0.10
+        
+        // If remaining is less than 10% then refund 0.
+        let refundAmount = remaining > tenPercent ? remaining - tenPercent : 0.0
+        let refundAmountCents = Int(refundAmount * 100)
+        
+        guard let paymentIntentId = goal.paymentIntentId else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Missing paymentIntentId"])))
+            return
+        }
+        
+        print("Triggering late deletion refund for goal \(goal.title): refund \(refundAmountCents) cents")
+        
+        processRefund(paymentIntentId: paymentIntentId, amount: refundAmountCents) { result in
+            completion(result)
+        }
+    }
+    
+    
     func markGoalAsManuallyRefunded(_ goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
         guard let userId = goal.userId, let goalId = goal.id else {
             completion(.failure(NSError(domain: "GoalViewModel", code: 2,
@@ -601,6 +624,28 @@ class GoalViewModel: ObservableObject {
         
         let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
         goalRef.updateData(["manuallyRefunded": true]) { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+    
+    
+    func markGoalAsDeleted(_ goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let userId = goal.userId, let goalId = goal.id else {
+            completion(.failure(NSError(domain: "GoalViewModel", code: 2,
+                                        userInfo: [NSLocalizedDescriptionKey: "Missing userId or goalId"])))
+            return
+        }
+        
+        let goalRef = db.collection("users").document(userId).collection("goals").document(goalId)
+        let now = Date()
+        goalRef.updateData([
+            "isDeleted": true,
+            "deletionDate": Timestamp(date: now)
+        ]) { error in
             if let error = error {
                 completion(.failure(error))
             } else {

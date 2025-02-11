@@ -2,7 +2,7 @@ import SwiftUI
 import AuthenticationServices
 import CryptoKit
 
-struct SignInWithAppleButton: UIViewRepresentable {
+struct AppleSignInButtonView: UIViewRepresentable {
     @EnvironmentObject var userManager: UserManager
     var type: ASAuthorizationAppleIDButton.ButtonType
     
@@ -19,10 +19,10 @@ struct SignInWithAppleButton: UIViewRepresentable {
     }
     
     class Coordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
-        let parent: SignInWithAppleButton
+        let parent: AppleSignInButtonView
         private var currentNonce: String?
         
-        init(_ parent: SignInWithAppleButton) {
+        init(_ parent: AppleSignInButtonView) {
             self.parent = parent
         }
         
@@ -38,27 +38,33 @@ struct SignInWithAppleButton: UIViewRepresentable {
             return window
         }
         
+        // In your Coordinator:
         func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-            if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
-               let _ = currentNonce,
-               let _ = appleIDCredential.identityToken,
-               let _ = String(data: appleIDCredential.identityToken!, encoding: .utf8) {
-                
-                parent.userManager.signInWithApple { result in
-                    switch result {
-                    case .success(let user):
-                        print("Signed in with Apple successfully: \(user.uid)")
-                    case .failure(let error):
-                        print("Error signing in with Apple: \(error.localizedDescription)")
-                    }
+            guard
+              let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let nonce = currentNonce,    // We stored it in startSignInWithAppleFlow
+              let _ = appleIDCredential.identityToken
+            else {
+                print("Unable to get AppleIDCredential or nonce.")
+                return
+            }
+
+            // Actually call userManager
+            parent.userManager.signInWithApple(credential: appleIDCredential,
+                                               nonce: nonce) { result in
+                switch result {
+                case .success(let user):
+                    print("Signed in with Apple successfully: \(user.uid)")
+                case .failure(let error):
+                    print("Error signing in with Apple: \(error.localizedDescription)")
                 }
-            } else {
-                print("Unable to obtain Apple ID credential")
             }
         }
+
         
         func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-            print("Sign in with Apple errored: \(error)")
+            let nsError = error as NSError
+            print("Sign in with Apple errored: \(nsError), code=\(nsError.code), desc=\(nsError.localizedDescription)")
         }
         
         @objc func startSignInWithAppleFlow() {

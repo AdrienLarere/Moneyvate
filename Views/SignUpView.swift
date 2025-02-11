@@ -13,16 +13,30 @@ struct SignUpView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Sign Up")
+            Text("Moneyvate Sign Up")
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
+            Spacer().frame(height: 10)
+            
+            // Email Field with custom border
             TextField("Email", text: $email)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(10)
+                .background(Color(.systemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary, lineWidth: 0.5)
+                )
                 .autocapitalization(.none)
             
+            // Password Field with custom border
             SecureField("Password", text: $password)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(10)
+                .background(Color(.systemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary, lineWidth: 0.5)
+                )
             
             Button(action: signUp) {
                 Text("Sign Up")
@@ -33,9 +47,15 @@ struct SignUpView: View {
                     .cornerRadius(10)
             }
             
-//            SignInWithAppleButton(type: .signUp)
-//                .frame(height: 50)
-//                .onTapGesture(perform: signUpWithApple)
+            Spacer().frame(height: 10)
+            
+            GoogleSignInButtonView(flow: .signUp)
+                .frame(height: 50)
+                .environmentObject(userManager)
+            
+            AppleSignInButtonView(type: .signUp)
+                .frame(height: 50)
+                .environmentObject(userManager)
         }
         .padding()
         .alert(isPresented: $showingAlert) {
@@ -58,19 +78,4 @@ struct SignUpView: View {
             }
         }
     }
-    
-//    private func signUpWithApple() {
-//        let nonce = userManager.randomNonceString()
-//        let appleIDProvider = ASAuthorizationAppleIDProvider()
-//        let request = appleIDProvider.createRequest()
-//        request.requestedScopes = [.fullName, .email]
-//        request.nonce = userManager.sha256(nonce)
-//
-//        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
-//        authorizationController.delegate = userManager
-//        authorizationController.presentationContextProvider = userManager
-//        authorizationController.performRequests()
-//
-//        // The actual sign in will be handled in the UserManager's authorizationController delegate method
-//    }
 }

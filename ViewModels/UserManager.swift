@@ -3,6 +3,7 @@ import Firebase
 import FirebaseAuth
 import FirebaseFirestore
 import AuthenticationServices
+import GoogleSignIn
 import CryptoKit
 
 class UserManager: NSObject, ObservableObject {
@@ -179,7 +180,7 @@ class UserManager: NSObject, ObservableObject {
         self.appleSignInCompletion = completion
     }
     
-    private func signInWithApple(idTokenString: String, nonce: String, completion: @escaping (Result<User, Error>) -> Void) {
+    private func signInWithAppleUsingToken(idTokenString: String, nonce: String, completion: @escaping (Result<User, Error>) -> Void) {
         let credential = OAuthProvider.appleCredential(
             withIDToken: idTokenString,
             rawNonce: nonce,
@@ -194,6 +195,69 @@ class UserManager: NSObject, ObservableObject {
             }
         }
     }
+    
+    
+    func signInWithGoogle() {
+        guard let clientID = FirebaseApp.app()?.options.clientID else {
+            print("Missing client ID in Firebase configuration.")
+            return
+        }
+
+        // 1) Assign the GIDConfiguration
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+
+        // 2) Presenting VC
+        guard let windowScene = UIApplication.shared.connectedScenes
+                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController
+        else {
+            print("Unable to get rootViewController.")
+            return
+        }
+
+        // 3) Start sign-in
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootVC) { [weak self] signInResult, error in
+            if let error = error {
+                print("Google sign-in failed: \(error.localizedDescription)")
+                return
+            }
+
+            // 4) Extract tokens
+            guard let user = signInResult?.user else {
+                print("No GIDGoogleUser object.")
+                return
+            }
+            // idToken is optional
+            guard let idToken = user.idToken else {
+                print("No idToken GIDToken.")
+                return
+            }
+            
+            // accessToken is non-optional
+            // so we can safely do:
+            let accessTokenString = user.accessToken.tokenString
+            let idTokenString = idToken.tokenString
+
+            // 5) Create Firebase credential
+            let credential = GoogleAuthProvider.credential(
+                withIDToken: idTokenString,
+                accessToken: accessTokenString
+            )
+
+            // 6) Firebase sign in
+            Auth.auth().signIn(with: credential) { authResult, error in
+                if let error = error {
+                    print("Firebase signIn failed: \(error.localizedDescription)")
+                    return
+                }
+                print("Firebase user: \(authResult?.user.uid ?? "No UID")")
+                
+                // Optionally load or create a user profile
+                self?.loadUserProfile()
+            }
+        }
+    }
+
     
     func loadUserProfile() {
         guard let user = Auth.auth().currentUser else { return }
@@ -214,9 +278,19 @@ class UserManager: NSObject, ObservableObject {
         }
     }
 
-    func createUserProfile(for user: User) {
+    func createUserProfile(for user: User,
+                           firstName: String? = nil,
+                           lastName: String? = nil)
+    {
         let db = Firestore.firestore()
-        let userProfile = UserProfile(id: user.uid, email: user.email ?? "", currency: "USD", isAdmin: false)
+        let userProfile = UserProfile(
+            id: user.uid,
+            email: user.email ?? "",
+            currency: "USD",
+            isAdmin: false,
+            firstName: firstName,
+            lastName: lastName
+        )
         do {
             try db.collection("users").document(user.uid).setData(from: userProfile)
             self.userProfile = userProfile
@@ -225,17 +299,36 @@ class UserManager: NSObject, ObservableObject {
         }
     }
 
-    func updateUserProfile(currency: String) {
+
+    func updateUserProfile(firstName: String?,
+                           lastName: String?,
+                           currency: String)
+    {
         guard let user = Auth.auth().currentUser else { return }
         let db = Firestore.firestore()
-        db.collection("users").document(user.uid).updateData(["currency": currency]) { [weak self] error in
+
+        // Build a dictionary of changed fields
+        var updateData: [String: Any] = [
+            "currency": currency
+        ]
+        if let fn = firstName { updateData["firstName"] = fn }
+        if let ln = lastName { updateData["lastName"] = ln }
+
+        db.collection("users").document(user.uid).updateData(updateData) { [weak self] error in
             if let error = error {
                 print("Error updating user profile: \(error)")
             } else {
-                self?.userProfile?.currency = currency
+                // update local userProfile in memory
+                if var up = self?.userProfile {
+                    up.currency = currency
+                    up.firstName = firstName
+                    up.lastName = lastName
+                    self?.userProfile = up  // reassign the updated copy
+                }
             }
         }
     }
+
     
     func checkEmailVerification(completion: @escaping (Bool) -> Void) {
         guard let user = Auth.auth().currentUser else {
@@ -311,6 +404,29 @@ class UserManager: NSObject, ObservableObject {
         
         return hashString
     }
+    
+    /// Called once we have the full Apple credential.
+    /// This method extracts the ID token as a String, then signs in with Firebase.
+    func signInWithApple(credential: ASAuthorizationAppleIDCredential,
+                         nonce: String,
+                         completion: @escaping (Result<User, Error>) -> Void)
+    {
+        // 1) Convert identityToken to String
+        guard let appleIDToken = credential.identityToken,
+              let idTokenString = String(data: appleIDToken, encoding: .utf8)
+        else {
+            let error = NSError(domain: "UserManager", code: 9999,
+                                userInfo: [NSLocalizedDescriptionKey: "Unable to get Apple ID token"])
+            completion(.failure(error))
+            return
+        }
+        
+        // 2) Then call your private signInWithAppleUsingToken(idTokenString:nonce:)
+        signInWithAppleUsingToken(idTokenString: idTokenString, nonce: nonce) { result in
+            completion(result)
+        }
+    }
+
 }
 
 struct RefundedPaymentIntent {
@@ -325,16 +441,9 @@ extension UserManager: ASAuthorizationControllerDelegate {
             guard let nonce = currentNonce else {
                 fatalError("Invalid state: A login callback was received, but no login request was sent.")
             }
-            guard let appleIDToken = appleIDCredential.identityToken else {
-                print("Unable to fetch identity token")
-                return
-            }
-            guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
-                print("Unable to serialize token string from data: \(appleIDToken.debugDescription)")
-                return
-            }
             
-            signInWithApple(idTokenString: idTokenString, nonce: nonce) { [weak self] result in
+            // Instead of manually extracting idTokenString here, call the new function:
+            signInWithApple(credential: appleIDCredential, nonce: nonce) { [weak self] result in
                 self?.appleSignInCompletion?(result)
                 self?.appleSignInCompletion = nil
             }

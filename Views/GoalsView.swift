@@ -4,6 +4,8 @@ struct GoalsView: View {
     @EnvironmentObject var viewModel: GoalViewModel
     @EnvironmentObject var userManager: UserManager
     @State private var showingAddGoal = false
+    @State private var showDeletedGoals: Bool = false
+    @State private var showPastGoals: Bool = false
     
     var body: some View {
         NavigationView {
@@ -29,8 +31,17 @@ struct GoalsView: View {
                             }
                         }
                         if !pastAndCompletedGoals.isEmpty {
-                            Section(header: Text("Past & Completed Goals")) {
-                                goalList(goals: pastAndCompletedGoals)
+                            Section() {
+                                DisclosureGroup("Past & Completed Goals", isExpanded: $showPastGoals) {
+                                    goalList(goals: pastAndCompletedGoals)
+                                }
+                            }
+                        }
+                        if !deletedGoals.isEmpty {
+                            Section() {
+                                DisclosureGroup("Deleted Goals", isExpanded: $showDeletedGoals) {
+                                    goalList(goals: deletedGoals, showMoneyDetails: false)
+                                }
                             }
                         }
                     }
@@ -68,12 +79,13 @@ struct GoalsView: View {
                     .environmentObject(userManager)
             }
         }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
     
-    private func goalList(goals: [Goal]) -> some View {
+    private func goalList(goals: [Goal], showMoneyDetails: Bool = true) -> some View {
         ForEach(goals) { goal in
             NavigationLink(destination: GoalDetailView(viewModel: viewModel, goal: goal)) {
-                GoalRowView(goal: goal, viewModel: viewModel)
+                GoalRowView(goal: goal, viewModel: viewModel, showMoneyDetails: showMoneyDetails)
             }
         }
     }
@@ -81,7 +93,8 @@ struct GoalsView: View {
     private var currentGoals: [Goal] {
         let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
         return viewModel.goals.filter { goal in
-            // Exclude manually refunded goals.
+            // Exclude deleted and manually refunded goals:
+            if goal.isDeleted ?? false { return false }
             if goal.manuallyRefunded ?? false { return false }
             let isActiveToday = (goal.startDateLocalString <= todayString && goal.endDateLocalString >= todayString)
             let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
@@ -93,10 +106,13 @@ struct GoalsView: View {
         .sorted { $0.startDate < $1.startDate }
     }
 
+
     
     private var futureGoals: [Goal] {
         let today = Calendar.current.startOfDay(for: Date())
         return viewModel.goals.filter {
+            // Exclude deleted and manually refunded goals:
+            if $0.isDeleted ?? false { return false }
             if $0.manuallyRefunded ?? false { return false }
             let goalStartDate = Calendar.current.startOfDay(for: $0.startDate)
             return goalStartDate > today
@@ -104,7 +120,7 @@ struct GoalsView: View {
         .sorted { $0.startDate < $1.startDate }
     }
 
-    
+
     private var pastAndCompletedGoals: [Goal] {
         let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
         return viewModel.goals.filter { goal in
@@ -118,11 +134,18 @@ struct GoalsView: View {
         .sorted { $0.startDate < $1.startDate }
     }
     
+    
+    private var deletedGoals: [Goal] {
+        return viewModel.goals.filter { $0.isDeleted ?? false }
+            .sorted { $0.startDate < $1.startDate }
+    }
+    
 }
 
 struct GoalRowView: View {
     let goal: Goal
     @ObservedObject var viewModel: GoalViewModel
+    var showMoneyDetails: Bool = true
     
     var body: some View {
         HStack {
@@ -130,16 +153,16 @@ struct GoalRowView: View {
                 Text(goal.title)
                     .font(.headline)
                 
-                // Show money earned vs. total.
-                // If the goal is manually refunded, show "total / total".
-                if goal.manuallyRefunded ?? false {
-                    Text("\(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                if showMoneyDetails {
+                    if goal.manuallyRefunded ?? false {
+                        Text("\(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("\(CurrencyHelper.format(amount: viewModel.earnedAmount(for: goal), currencyCode: goal.currency ?? "USD")) / \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             Spacer()
@@ -176,9 +199,10 @@ struct GoalRowView: View {
 
     /// Decides if we show the blue dot for "pending" logic
     private var shouldShowNotificationDot: Bool {
-        // 0) No notification dot if manually refunded
+        // 0) No notification dot if manually refunded OR deleted
         if goal.manuallyRefunded ?? false { return false }
-        
+        if goal.isDeleted ?? false { return false }
+    
         // 1) Get today's LOCAL dateString
         let todayDateString = Date().toStringLocal(format: "yyyy-MM-dd")
         

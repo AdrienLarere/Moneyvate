@@ -2,17 +2,27 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var userManager: UserManager
+
+    // Local copies for editing
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
     @State private var selectedCurrency = "USD"
+
+    // Track whether user changed anything
+    @State private var isDirty = false
+
     let currencies = ["USD", "GBP", "EUR"]
     
     var body: some View {
         Form {
-            Section(header: Text("Account")) {
-                if let email = userManager.userProfile?.email {
-                    Text("You are logged in as: \(email)")
-                } else {
-                    Text("No email available")
-                }
+            let email = userManager.userProfile?.email ?? "Unknown"
+            Section(header: Text("Account for \(email)")) {
+                TextField("First Name", text: $firstName, onEditingChanged: { _ in
+                    isDirty = true
+                })
+                TextField("Last Name", text: $lastName, onEditingChanged: { _ in
+                    isDirty = true
+                })
             }
             
             Section(header: Text("Currency")) {
@@ -22,14 +32,35 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(SegmentedPickerStyle())
-                .onChange(of: selectedCurrency) { oldCurrency, newCurrency in
-                    userManager.updateUserProfile(currency: newCurrency)
+                .onChange(of: selectedCurrency) { _, _ in
+                    isDirty = true
                 }
             }
         }
         .navigationTitle("Settings")
         .onAppear {
-            selectedCurrency = userManager.userProfile?.currency ?? "USD"
+            // Sync local fields from userProfile
+            if let profile = userManager.userProfile {
+                self.firstName = profile.firstName ?? ""
+                self.lastName = profile.lastName ?? ""
+                self.selectedCurrency = profile.currency
+            }
+            // Set isDirty to false
+            isDirty = false
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isDirty {
+                    Button("Save") {
+                        userManager.updateUserProfile(
+                            firstName: firstName,
+                            lastName: lastName,
+                            currency: selectedCurrency
+                        )
+                        isDirty = false
+                    }
+                }
+            }
         }
     }
 }

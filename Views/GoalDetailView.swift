@@ -5,6 +5,7 @@ struct GoalDetailView: View {
     @State private var showingCompletionModal = false
     @State private var selectedDayString: String?
     @State private var goal: Goal
+    @State private var showingDeletionModal = false
 
     init(viewModel: GoalViewModel, goal: Goal) {
         self._viewModel = ObservedObject(wrappedValue: viewModel)
@@ -15,13 +16,30 @@ struct GoalDetailView: View {
         List {
             // Same "Goal Details" section
             Section(header: Text("Goal Details")) {
+                if goal.isDeleted ?? false {
+                    // Compare deletionDate with startDate to decide message:
+                    if let deletionDate = goal.deletionDate {
+                        let hours = Calendar.current.dateComponents([.hour], from: Calendar.current.startOfDay(for: goal.startDate), to: deletionDate).hour ?? 0
+                        if hours < 24 {
+                            Text("Deleted")
+                                .foregroundColor(.red)
+                        } else {
+                            Text("Deleted late (10% penalty)")
+                                .foregroundColor(.red)
+                        }
+                    } else {
+                        Text("Deleted")
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
                 Text("Frequency: \(goal.frequency.rawValue)")
                 if goal.frequency == .xDays, let xDays = goal.selectedXDays {
                     Text("Required Completions: \(xDays)")
                 }
                 Text("Verification Method: \(goal.verificationMethod.rawValue)")
                 
-                if goal.manuallyRefunded ?? false {
+                if (goal.manuallyRefunded ?? false) || (goal.isDeleted ?? false) {
                     Text("Total Amount: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
                     Text("Total Refunded: \(CurrencyHelper.format(amount: goal.totalAmount, currencyCode: goal.currency ?? "USD"))")
                 } else {
@@ -40,6 +58,23 @@ struct GoalDetailView: View {
                         // Instead of referencing goal.completions, we look up the completion in the sub-collection data
                         completionStatusView(for: dayStr)
                     }
+                }
+            }
+            Section {
+                if canDeleteGoal {
+                    Button(action: {
+                        showingDeletionModal = true
+                    }) {
+                        Text("Delete Goal")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.red, lineWidth: 2)
+                            )
+                    }
+                    .foregroundColor(.red)
                 }
             }
         }
@@ -87,6 +122,10 @@ struct GoalDetailView: View {
                 self.goal = updatedGoal
             }
         }
+        .sheet(isPresented: $showingDeletionModal) {
+            GoalDeletionModalView(goal: $goal)
+                .environmentObject(viewModel)
+        }
     }
     
     // MARK: - Subviews & Helpers
@@ -116,12 +155,26 @@ struct GoalDetailView: View {
     
     /// A more nuanced approach to handle .nonSubmitted logic
     private func completionStatusView(for dayString: String) -> some View {
+        if goal.isDeleted ?? false {
+            // If the goal is deleted, override non-submitted completions to display "Deleted" in red.
+            if let completion = completionForDayString(dayString), completion.status == .nonSubmitted {
+                return AnyView(Text("Deleted")
+                    .italic()
+                    .foregroundColor(.red))
+            }
+            // Otherwise, if no completion doc exists, also show "Deleted"
+            if completionForDayString(dayString) == nil {
+                return AnyView(Text("Deleted")
+                    .italic()
+                    .foregroundColor(.red))
+            }
+        }
+        // Otherwise, use the normal logic:
         if goal.manuallyRefunded ?? false {
             return AnyView(Text("Manually Refunded")
                 .italic()
                 .foregroundColor(.green))
         }
-        // Check if we have a doc for that dayString
         if let completion = completionForDayString(dayString) {
             return AnyView(viewForExistingCompletion(completion, dayString: dayString))
         } else {
@@ -385,6 +438,20 @@ struct GoalDetailView: View {
         df.timeZone = .current  // or omit since .current is default
         return df.date(from: dayString)
     }
+    
+    private var canDeleteGoal: Bool {
+        let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
+        // Determine if the goal is past:
+        let isPast = goal.endDateLocalString < todayString
+        // Determine if the goal is completed:
+        let completedCount = (viewModel.completionsByGoal[goal.id ?? ""]?
+            .filter { $0.status == .verified || $0.status == .refunded }
+            .count) ?? 0
+        let isCompleted = completedCount >= goal.requiredCompletions
+        // The goal can be deleted only if it is NOT past, NOT completed, NOT manually refunded, and NOT already deleted.
+        return !(isPast || isCompleted || (goal.manuallyRefunded ?? false) || (goal.isDeleted ?? false))
+    }
+
 }
 
 struct CustomLoader: View {

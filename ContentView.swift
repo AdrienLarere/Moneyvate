@@ -64,9 +64,6 @@ struct ContentView: View {
         let currency = refundedPIs.first?.currency.uppercased() ?? "USD" // or adapt
         let totalDecimal = Double(totalCents) / 100.0
         
-        // PaymentIntent IDs as comma-separated
-        let idsList = refundedPIs.map { $0.id }.joined(separator: ", ")
-        
         return """
         
         Something went wrong for a goal you attempted to create:

@@ -8,16 +8,31 @@ struct SignInView: View {
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Sign In")
+            
+            Text("Moneyvate Sign In")
                 .font(.largeTitle)
                 .fontWeight(.bold)
             
+            Spacer().frame(height: 10)
+            
+            // Email Field with custom border
             TextField("Email", text: $email)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(10)
+                .background(Color(.systemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary, lineWidth: 0.5)
+                )
                 .autocapitalization(.none)
             
+            // Password Field with custom border
             SecureField("Password", text: $password)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(10)
+                .background(Color(.systemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary, lineWidth: 0.5)
+                )
             
             Button(action: signIn) {
                 Text("Sign In")
@@ -28,8 +43,17 @@ struct SignInView: View {
                     .cornerRadius(10)
             }
             
-//            SignInWithAppleButton(type: .signIn)
-//                .frame(height: 50)
+            Spacer().frame(height: 10)
+            
+            GoogleSignInButtonView(flow: .signIn)
+                .frame(height: 50)
+                .environmentObject(userManager)
+            
+            AppleSignInButtonView(type: .signIn)
+                .frame(height: 50)
+                .environmentObject(userManager)
+            
+            Spacer().frame(height: 10)
             
             Button(action: { isShowingSignUp = true }) {
                 Text("Don't have an account? Sign Up here")
