@@ -61,6 +61,13 @@ struct GoalDetailView: View {
                 }
             }
             
+            if canDeleteGoal {
+                Spacer()
+                .frame(height: 40)
+                // Force the row background to be the default gray
+                .listRowBackground(Color(UIColor.systemGroupedBackground))
+            }
+            
             Section {
                 if canDeleteGoal {
                     Button(action: {
@@ -78,6 +85,7 @@ struct GoalDetailView: View {
                     .foregroundColor(.red)
                 }
             }
+            .listRowBackground(Color(UIColor.systemGroupedBackground))
         }
         .navigationTitle(goal.title)
         .onAppear {
