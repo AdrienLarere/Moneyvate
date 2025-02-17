@@ -58,16 +58,6 @@ struct GoalDeletionModalView: View {
                             .cornerRadius(10)
                         }
 
-//                        Button("Full Refund + Deletion") {
-//                            isDeleting = true
-//                            triggerDeletion(fullRefund: true)
-//                        }
-//                        .font(.headline)
-//                        .frame(maxWidth: .infinity)
-//                        .padding()
-//                        .background(Color.red)
-//                        .foregroundColor(.white)
-//                        .cornerRadius(10)
                     } else {
                         Button("90% Refund + Deletion") {
                             isDeleting = true
