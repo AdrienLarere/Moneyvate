@@ -3,13 +3,45 @@ import SwiftUI
 struct GoalsView: View {
     @EnvironmentObject var viewModel: GoalViewModel
     @EnvironmentObject var userManager: UserManager
+    
     @State private var showingAddGoal = false
     @State private var showDeletedGoals: Bool = false
     @State private var showPastGoals: Bool = false
     
+    private var totalActiveGoals: Int {
+        currentGoals.count + futureGoals.count
+    }
+
+    private var canAddGoal: Bool {
+        // If user is admin, no limit
+        if userManager.userProfile?.isAdmin == true {
+            return true
+        }
+        // Otherwise limit is 5
+        return totalActiveGoals < 5
+    }
+    
     var body: some View {
         NavigationView {
-            Group {
+            
+            VStack(spacing: 0) {
+                if !(userManager.userProfile?.isAdmin ?? false) {
+                    let maxGoals = 5
+                    let progress = Double(totalActiveGoals) / Double(maxGoals)
+
+                    VStack(spacing: 8) {
+                        Text("Present + Future Goals: \(totalActiveGoals)/\(maxGoals)")
+                            .font(.footnote)
+
+                        // This is the bar from 0..5
+                        ProgressView(value: progress)
+                            .progressViewStyle(LinearProgressViewStyle())
+                            .padding(.horizontal, 16)
+                    }
+                    .padding(.vertical, 8)
+                    .background(Color(UIColor.systemGroupedBackground))
+                }
+                
                 if viewModel.goals.isEmpty {
                     VStack {
                         Spacer()
@@ -55,9 +87,13 @@ struct GoalsView: View {
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddGoal = true }) {
+                    // Disable the "+" if canAddGoal == false
+                    Button {
+                        showingAddGoal = true
+                    } label: {
                         Image(systemName: "plus")
                     }
+                    .disabled(!canAddGoal)
                 }
                 ToolbarItemGroup(placement: .bottomBar) {
                     NavigationLink(destination: AboutView()) {
