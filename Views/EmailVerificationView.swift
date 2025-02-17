@@ -65,7 +65,6 @@ struct EmailVerificationView: View {
     
     private func checkVerification() {
         isChecking = true
-        // Force a reload of the current user to get updated verification status.
         Auth.auth().currentUser?.reload { error in
             isChecking = false
             if let error = error {
@@ -73,15 +72,25 @@ struct EmailVerificationView: View {
                 showingAlert = true
             } else {
                 let isVerified = Auth.auth().currentUser?.isEmailVerified ?? false
-                if !isVerified {
-                    alertMessage = "Email is not yet verified. Please check your inbox and spam folder."
+                if isVerified {
+                    // 1) If verified, either navigate to main or sign them out
+                    // For example, sign out so they can sign in again:
+                    userManager.signOut()
+
+                    // Then maybe present a success alert
+                    alertMessage = "Email is verified! Please sign in again."
+                    showingAlert = true
+
+                    // Or if you have a main app flow, do a custom navigate:
+                    // e.g. isVerifiedFlow = true
+                } else {
+                    alertMessage = "Email is not yet verified. Please check your inbox/spam."
                     showingAlert = true
                 }
-                // If verified, you can then update your userManager, if needed,
-                // or proceed with the flow that transitions to the main app.
             }
         }
     }
+    
     
     private func resendEmail() {
         isChecking = true

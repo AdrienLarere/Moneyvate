@@ -24,6 +24,11 @@ struct AddGoalView: View {
     @State private var showingPaymentSheet = false
     @State private var showingApplePay = false
     @State private var applePayRequest: PKPaymentRequest?
+    @State private var notificationsEnabled: Bool = false
+    @State private var notificationPermissionGranted: Bool = false
+    @State private var userManuallyDisabledNotifications: Bool = false // Track if user explicitly toggled from ON -> OFF
+    @State private var notificationTime = Date() // default to current time
+    @State private var showAlertForNotifications: Bool = false
     
     private var currencySymbol: String {
         let locale = Locale(identifier: Locale.current.identifier)
@@ -35,6 +40,23 @@ struct AddGoalView: View {
     
     var body: some View {
         NavigationView {
+            
+            let notificationsBinding = Binding<Bool>(
+                get: { self.notificationsEnabled },
+                set: { newValue in
+                    if newValue && !self.notificationPermissionGranted {
+                        // The user tried to enable, but iOS perms are off
+                        self.showAlertForNotifications = true
+                    } else {
+                        // If user is toggling from ON to OFF manually
+                        if self.notificationsEnabled && !newValue {
+                            self.userManuallyDisabledNotifications = true
+                        }
+                        self.notificationsEnabled = newValue
+                    }
+                }
+            )
+            
             Form {
                 Section(header: Text("Goal Details")) {
                     TextField("Goal Title", text: $title)
@@ -71,6 +93,13 @@ struct AddGoalView: View {
                     }
                 }
                 
+                Section(header: Text("Notification")) {
+                    Toggle("Remind me of this goal", isOn: notificationsBinding)
+                    if notificationsEnabled {
+                        DatePicker("Notification Time", selection: $notificationTime, displayedComponents: .hourAndMinute)
+                    }
+                }
+                
                 Section {
                     Toggle(isOn: $agreementChecked) {
                         Text("If I miss my daily goal, I will not get that day's money back.")
@@ -86,6 +115,7 @@ struct AddGoalView: View {
                                 .foregroundColor(.red)
                         } else {
                             Button("Pay \(CurrencyHelper.format(amount: calculateTotalAmount(), currencyCode: userManager.currentCurrency))") {
+                                print("Initiating payment with notificationsEnabled: \(notificationsEnabled)")
                                 initiatePayment()
                             }
                             .disabled(!isFormValid || !paymentViewModel.isNetworkAvailable)
@@ -96,8 +126,20 @@ struct AddGoalView: View {
             .navigationTitle("Add New Goal")
         }
         .onAppear {
+            NotificationManager.shared.requestAuthorization { granted in
+                notificationsEnabled = granted
+            }
             if startDate < today {
                 startDate = today
+            }
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                DispatchQueue.main.async {
+                    self.notificationPermissionGranted = (settings.authorizationStatus == .authorized)
+                    // Optionally, if not authorized, force notificationsEnabled to false.
+                    if !self.notificationPermissionGranted {
+                        self.notificationsEnabled = false
+                    }
+                }
             }
         }
         .sheet(isPresented: $showingPaymentSheet) {
@@ -130,6 +172,37 @@ struct AddGoalView: View {
                     }
                 })
             )
+        }
+        .alert(isPresented: $showAlertForNotifications) {
+            Alert(
+                title: Text("Notifications Disabled"),
+                message: Text("Please turn notifications on in your settings to allow us to remind you of your goals"),
+                primaryButton: .default(Text("Settings"), action: {
+                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(settingsURL)
+                    }
+                }),
+                secondaryButton: .cancel()
+            )
+        }
+        // This onReceive is here to change the value of the notificationsEnabled var everytime the page is shown, to avoid the situation where users change their notification settings, come back to the app, but are still told their notifications are off.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            guard !showingPaymentSheet else { return }
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                DispatchQueue.main.async {
+                    let isAuthorized = (settings.authorizationStatus == .authorized)
+                    self.notificationPermissionGranted = isAuthorized
+
+                    // If system says "authorized," we only re-enable notifications if user
+                    // hasn't explicitly toggled them off in the UI.
+                    if isAuthorized && !self.userManuallyDisabledNotifications {
+                        self.notificationsEnabled = true
+                    } else if !isAuthorized {
+                        // If user disabled notifications in iOS settings, we turn toggle off
+                        self.notificationsEnabled = false
+                    }
+                }
+            }
         }
     }
     
@@ -198,10 +271,8 @@ struct AddGoalView: View {
     }
     
     private func initiatePayment() {
-        print("Initiating payment process")
         let amount = Int(calculateTotalAmount() * 100)
-        print("Calculated amount: \(amount)")
-        
+        print("initiatePayment() called. isFormValid=\(isFormValid), notificationsEnabled=\(notificationsEnabled), agreementChecked=\(agreementChecked)")
         paymentViewModel.createPaymentIntent(amount: amount, currencyCode: userManager.currentCurrency) { success in
             DispatchQueue.main.async {
                 if success {
@@ -239,12 +310,14 @@ struct AddGoalView: View {
     private func handlePaymentResult(success: Bool, error: String?) {
         self.showingPaymentSheet = false
         self.showingApplePay = false
-
+        print("handlePaymentResult - success=\(success), error=\(error ?? "no error"), notificationsEnabled=\(notificationsEnabled)")
         if success {
             // 1) Create the goal in Firestore
             if let newlyCreatedGoal = self.addGoal(),
                let goalId = newlyCreatedGoal.id,
                let paymentIntentId = paymentViewModel.paymentIntentId {
+                
+                print("Creating goal – notificationsEnabled: \(notificationsEnabled)")
                
                 // 2) Call the PaymentViewModel function to update metadata
                 paymentViewModel.updatePaymentIntentWithGoalId(
@@ -253,6 +326,23 @@ struct AddGoalView: View {
                 ) { updateSuccess in
                     if updateSuccess {
                         print("PaymentIntent metadata updated with goalId successfully!")
+                        
+                        if notificationsEnabled {
+                            let goalID = newlyCreatedGoal.id
+                            if let goalID = goalID {
+                                let dueDates = NotificationManager.shared.datesForGoalNotifications(goal: newlyCreatedGoal)
+                                let timeComponents = Calendar.current.dateComponents([.hour, .minute], from: notificationTime)
+                                for date in dueDates {
+                                    NotificationManager.shared.scheduleNotification(
+                                        for: goalID,
+                                        on: date,
+                                        at: timeComponents,
+                                        title: "Goal Reminder",
+                                        body: "Don't forget to complete your goal for today!"
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         print("Failed to update PaymentIntent with goalId.")
                         // Possibly show an alert or handle as needed
@@ -286,6 +376,7 @@ struct AddGoalView: View {
     }
     
     private func addGoal() -> Goal? {
+        print("Creating goal – notificationsEnabled: \(notificationsEnabled)")
         guard let amountPerSuccessValue = Double(amountPerSuccess) else { return nil }
 
         let requiredCompletionsValue: Int
@@ -311,7 +402,8 @@ struct AddGoalView: View {
             verificationMethod: verificationMethod,
             currency: userManager.currentCurrency,
             paymentIntentId: paymentViewModel.paymentIntentId,
-            selectedXDays: frequency == .xDays ? requiredCompletions : nil
+            selectedXDays: frequency == .xDays ? requiredCompletions : nil,
+            notificationTime: notificationTime
         )
 
         return newGoal

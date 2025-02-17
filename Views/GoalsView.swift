@@ -66,7 +66,9 @@ struct GoalsView: View {
                             .font(.footnote)
                     }
                     Spacer()
-                    NavigationLink(destination: SettingsView()) {
+                    NavigationLink(destination: SettingsView()
+                        .environmentObject(viewModel) // pass the same instance used in GoalsView
+                    ) {
                         Image(systemName: "gearshape")
                             .foregroundColor(.blue)
                             .font(.footnote)

@@ -28,7 +28,7 @@ struct GoalDeletionModalView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                 
-                Text("Deleting a goal could be an easy way to avoid its completion.\n\nWe want to prevent this hack, but we also want our tech to be fair and forgiving.\n\nThis is our solution:\n\nIf you delete your goal within 24 hours of its creation, you'll receive a full refund along with the deletion.\n\nBeyond the 24 hours mark however, you will receive a 10% penalty, such that your total refund will only be worth 90% of the total amount paid.")
+                Text("Deleting a goal could be an easy way to avoid its completion.\n\nWe want to prevent this hack, but we also want our tech to be fair and forgiving.\n\nThis is our solution:\n\nIf you delete your goal within 24 hours of its creation or if it's in the future, you'll receive a full refund along with the deletion.\n\nBeyond the 24 hours mark however, you will receive a 10% penalty, such that your total refund will only be worth 90% of the total amount paid.")
                     .multilineTextAlignment(.center)
                     .padding()
                 

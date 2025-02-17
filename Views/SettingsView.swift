@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var userManager: UserManager
+    @EnvironmentObject var goalViewModel: GoalViewModel
 
     // Local copies for editing
     @State private var firstName: String = ""
@@ -34,6 +35,14 @@ struct SettingsView: View {
                 .pickerStyle(SegmentedPickerStyle())
                 .onChange(of: selectedCurrency) { _, _ in
                     isDirty = true
+                }
+            }
+            Section {
+                NavigationLink(destination: AccountDeletionModalView()
+                    .environmentObject(goalViewModel)
+                ) {
+                    Text("Account Deletion Page")
+                        .foregroundColor(.red)
                 }
             }
         }

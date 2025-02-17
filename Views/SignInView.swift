@@ -5,16 +5,19 @@ struct SignInView: View {
     @State private var email = ""
     @State private var password = ""
     @Binding var isShowingSignUp: Bool
-    
+
+    // 1) Add a property to hold sign-in errors
+    @State private var signInErrorMessage: String?
+
     var body: some View {
         VStack(spacing: 20) {
-            
+
             Text("Moneyvate Sign In")
                 .font(.largeTitle)
                 .fontWeight(.bold)
-            
+
             Spacer().frame(height: 10)
-            
+
             // Email Field with custom border
             TextField("Email", text: $email)
                 .padding(10)
@@ -24,7 +27,7 @@ struct SignInView: View {
                         .stroke(Color.secondary, lineWidth: 0.5)
                 )
                 .autocapitalization(.none)
-            
+
             // Password Field with custom border
             SecureField("Password", text: $password)
                 .padding(10)
@@ -33,7 +36,7 @@ struct SignInView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(Color.secondary, lineWidth: 0.5)
                 )
-            
+
             Button(action: signIn) {
                 Text("Sign In")
                     .frame(maxWidth: .infinity)
@@ -42,27 +45,36 @@ struct SignInView: View {
                     .foregroundColor(.white)
                     .cornerRadius(10)
             }
-            
+
             Spacer().frame(height: 10)
-            
+
             GoogleSignInButtonView(flow: .signIn)
                 .frame(height: 50)
                 .environmentObject(userManager)
-            
+
             AppleSignInButtonView(type: .signIn)
                 .frame(height: 50)
                 .environmentObject(userManager)
-            
+
             Spacer().frame(height: 10)
-            
+
             Button(action: { isShowingSignUp = true }) {
                 Text("Don't have an account? Sign Up here")
                     .foregroundColor(.blue)
             }
         }
         .padding()
+        // 2) Present an Alert if signInErrorMessage is set
+        .alert("Sign In Error", isPresented: Binding<Bool>(
+            get: { signInErrorMessage != nil },
+            set: { _ in signInErrorMessage = nil }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(signInErrorMessage ?? "")
+        }
     }
-    
+
     private func signIn() {
         userManager.signIn(email: email, password: password) { result in
             switch result {
@@ -70,6 +82,8 @@ struct SignInView: View {
                 print("Signed in successfully")
             case .failure(let error):
                 print("Sign in error: \(error.localizedDescription)")
+                // 3) Assign error message for the alert
+                signInErrorMessage = error.localizedDescription
             }
         }
     }

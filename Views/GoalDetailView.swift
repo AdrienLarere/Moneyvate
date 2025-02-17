@@ -60,6 +60,7 @@ struct GoalDetailView: View {
                     }
                 }
             }
+            
             Section {
                 if canDeleteGoal {
                     Button(action: {

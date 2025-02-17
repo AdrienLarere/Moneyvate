@@ -36,33 +36,61 @@ class UserManager: NSObject, ObservableObject {
         }
     }
     
+    
     func isPasswordValid(_ password: String) -> Bool {
         let passwordRegex = "^(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$"
         return NSPredicate(format: "SELF MATCHES %@", passwordRegex).evaluate(with: password)
     }
         
+    
     func signUp(email: String, password: String, completion: @escaping (Result<User, Error>) -> Void) {
+        print("Attempting signUp with email=\(email)")
+        
+        // First, validate the password.
         guard isPasswordValid(password) else {
             self.errorMessage = "Password must be at least 8 characters long and contain at least one capital letter, one number, and one special character."
             completion(.failure(NSError(domain: "", code: 0, userInfo: [NSLocalizedDescriptionKey: self.errorMessage!])))
             return
         }
         
-        Auth.auth().createUser(withEmail: email, password: password) { [weak self] (result, error) in
-            if let error = error as NSError? {
-                if error.code == AuthErrorCode.emailAlreadyInUse.rawValue {
-                    self?.errorMessage = "This email is already in use. Please try a different one."
-                } else {
-                    self?.errorMessage = error.localizedDescription
+        // Check if the user is allowed to register (e.g. based on prior deletions).
+        self.canRegister(email: email) { [weak self] allowed in
+            guard let self = self else { return }
+            if !allowed {
+                self.errorMessage = "You cannot register a new account until two weeks have passed since your last deletion."
+                completion(.failure(NSError(domain: "", code: 0, userInfo: [NSLocalizedDescriptionKey: self.errorMessage ?? "Registration blocked."])))
+                return
+            }
+            
+            // Proceed to create the user since registration is allowed.
+            Auth.auth().createUser(withEmail: email, password: password) { [weak self] (result, error) in
+                if let error = error as NSError? {
+                    if error.code == AuthErrorCode.emailAlreadyInUse.rawValue {
+                        self?.errorMessage = "This email is already in use. Please try a different one."
+                    } else {
+                        self?.errorMessage = error.localizedDescription
+                    }
+                    completion(.failure(error))
+                } else if let user = result?.user {
+                    print("SignUp success, user.uid=\(user.uid). Now createOrUpdateUserInfo.")
+                    self?.isNewUser = true
+                    self?.sendVerificationEmail(user: user)
+                    
+                    // Create or update the user's info in userInfo
+                    self?.createOrUpdateUserInfo(for: user) { result in
+                        switch result {
+                        case .success:
+                            print("UserInfo doc created/updated in UserInfo/\(email)")
+                        case .failure(let error):
+                            print("Failed to update UserInfo: \(error.localizedDescription)")
+                        }
+                    }
+                    completion(.success(user))
                 }
-                completion(.failure(error))
-            } else if let user = result?.user {
-                self?.isNewUser = true
-                self?.sendVerificationEmail(user: user)
-                completion(.success(user))
             }
         }
     }
+    
     
     func signIn(email: String, password: String, completion: @escaping (Result<User, Error>) -> Void) {
         Auth.auth().signIn(withEmail: email, password: password) { (result, error) in
@@ -91,6 +119,50 @@ class UserManager: NSObject, ObservableObject {
             print("Error signing out: \(error.localizedDescription)")
         }
     }
+    
+    
+    func canRegister(email: String, completion: @escaping (Bool) -> Void) {
+        let db = Firestore.firestore()
+        // Possibly normalize the email to lowercase:
+        let normalizedEmail = email.lowercased()  // if you always store doc with lowercased email
+        let userInfoRef = db.collection("userInfo").document(normalizedEmail)
+
+        print("DEBUG: Checking canRegister for email=\(normalizedEmail)")
+
+        userInfoRef.getDocument { snapshot, error in
+            if let error = error {
+                print("canRegister error reading doc for \(normalizedEmail): \(error.localizedDescription)")
+                // If we can't read doc, let's allow registering or handle differently
+                completion(true)
+                return
+            }
+
+            guard let snapshot = snapshot, snapshot.exists else {
+                print("DEBUG: No userInfo doc found for \(normalizedEmail). => allow register")
+                completion(true)
+                return
+            }
+
+            do {
+                let userInfo = try snapshot.data(as: UserInfo.self)
+                print("DEBUG: Found userInfo doc for \(normalizedEmail): \(userInfo)")
+                if let blockedUntil = userInfo.blockedUntil {
+                    print("DEBUG: blockedUntil=\(blockedUntil)")
+                    if blockedUntil > Date() {
+                        print("DEBUG: blocked => false")
+                        completion(false)
+                        return
+                    }
+                }
+                print("DEBUG: Not blocked => true")
+                completion(true)
+            } catch {
+                print("DEBUG: Error parsing doc as UserInfo: \(error)")
+                completion(true)
+            }
+        }
+    }
+
     
     private func sendVerificationEmail(user: User) {
         user.sendEmailVerification { error in
@@ -328,6 +400,113 @@ class UserManager: NSObject, ObservableObject {
             }
         }
     }
+    
+    // UserInfo is a separate model where we can keep track of a user's installs and deletions even if we have removed their account. Useful for tracking how the app is used while respecting GDPR to delete users' accounts fully.
+    func createOrUpdateUserInfo(for user: User, completion: @escaping (Result<Void, Error>) -> Void) {
+        let db = Firestore.firestore()
+
+        // 1) Use the user’s email as doc ID
+        guard let email = user.email else {
+            completion(.failure(NSError(domain: "UserManager", code: 2,
+                                        userInfo: [NSLocalizedDescriptionKey: "User has no email."])))
+            return
+        }
+
+        let userInfoRef = db.collection("userInfo").document(email)
+        
+        userInfoRef.getDocument { (snapshot, error) in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            if let snapshot = snapshot, snapshot.exists,
+               var existingInfo = try? snapshot.data(as: UserInfo.self) {
+                // 2) If doc exists, update it
+                existingInfo.installs.append(Date())
+                existingInfo.isInstalled = true
+                do {
+                    try userInfoRef.setData(from: existingInfo, merge: true)
+                    completion(.success(()))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                // 3) Create a new doc if none
+                let newInfo = UserInfo(
+                    id: email,
+                    email: email,
+                    installs: [Date()],
+                    deletions: [],
+                    isInstalled: true
+                )
+                do {
+                    try userInfoRef.setData(from: newInfo)
+                    completion(.success(()))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+    
+    
+    func recordAccountDeletion(forEmail email: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let db = Firestore.firestore()
+        let normalizedEmail = email.lowercased()
+        let userInfoRef = db.collection("userInfo").document(normalizedEmail)
+        
+        userInfoRef.getDocument { snapshot, error in
+            if let error = error {
+                completion(.failure(error))
+                return
+            }
+            
+            if let snapshot = snapshot, snapshot.exists,
+               var userInfo = try? snapshot.data(as: UserInfo.self) {
+                let now = Date()
+                userInfo.deletions.append(now)
+                userInfo.isInstalled = false
+                userInfo.blockedUntil = Calendar.current.date(byAdding: .day, value: 14, to: now)
+
+                do {
+                    try userInfoRef.setData(from: userInfo, merge: true)
+                    completion(.success(()))
+                } catch {
+                    completion(.failure(error))
+                }
+            } else {
+                let now = Date()
+                let blockedDate = Calendar.current.date(byAdding: .day, value: 14, to: now)
+                let newInfo = UserInfo(
+                    id: email,
+                    email: email,
+                    installs: [],
+                    deletions: [now],
+                    isInstalled: false,
+                    blockedUntil: blockedDate
+                )
+                do {
+                    try userInfoRef.setData(from: newInfo)
+                    completion(.success(()))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+    
+    
+    func deleteUserFirestoreDoc(uid: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        let db = Firestore.firestore()
+        let userDocRef = db.collection("users").document(uid)
+        userDocRef.delete { error in
+            if let error = error {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
 
     
     func checkEmailVerification(completion: @escaping (Bool) -> Void) {
@@ -426,6 +605,25 @@ class UserManager: NSObject, ObservableObject {
             completion(result)
         }
     }
+    
+    
+    func deleteUserAccount(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let user = Auth.auth().currentUser else {
+            completion(.failure(NSError(domain: "UserManager", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "No user found."])))
+            return
+        }
+
+        user.delete { error in
+            if let error = error {
+                print("deleteUserAccount error: \(error.localizedDescription)")
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
 
 }
 

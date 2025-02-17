@@ -14,11 +14,6 @@ struct MoneyvateApp: App {
             ContentView()
                 .environmentObject(goalViewModel)
                 .environmentObject(userManager)
-                .onAppear {
-                    // Or do it here
-                    let defaultBucket = Storage.storage().reference().bucket
-                    print("Default bucket is:", defaultBucket)
-                }
         }
     }
 }

@@ -6,6 +6,7 @@ struct Goal: Identifiable, Codable {
     var userId: String?
     var title: String
     var frequency: Frequency
+    var selectedXDays: Int?  // Only applicable when frequency == .xDays
     var amountPerSuccess: Double
     var startDate: Date
     var endDate: Date
@@ -16,9 +17,7 @@ struct Goal: Identifiable, Codable {
     var manuallyRefunded: Bool?
     var isDeleted: Bool?      // true if the goal is deleted
     var deletionDate: Date?     // the date when the goal was deleted
-    
-    // NEW: Only applicable when frequency == .xDays
-    var selectedXDays: Int?
+    var notificationTime: Date?
     
     var startDateLocalString: String {
         convertUTCToLocalDateString(date: startDate)
@@ -58,7 +57,7 @@ struct Goal: Identifiable, Codable {
     // Only list the fields that actually exist on the Goal doc
     enum CodingKeys: String, CodingKey {
         case id, userId, title, frequency, amountPerSuccess, startDate, endDate,
-             totalAmount, verificationMethod, paymentIntentId, currency, selectedXDays, manuallyRefunded, isDeleted, deletionDate
+             totalAmount, verificationMethod, paymentIntentId, currency, selectedXDays, manuallyRefunded, isDeleted, deletionDate, notificationTime
     }
 
     init(id: String? = nil,
@@ -75,7 +74,8 @@ struct Goal: Identifiable, Codable {
          selectedXDays: Int? = nil,
          manuallyRefunded: Bool = false,
          isDeleted: Bool? = false,
-         deletionDate: Date? = nil) {
+         deletionDate: Date? = nil,
+         notificationTime: Date? = nil) {
         self.id = id
         self.userId = userId
         self.title = title
@@ -91,6 +91,7 @@ struct Goal: Identifiable, Codable {
         self.manuallyRefunded = manuallyRefunded
         self.isDeleted = isDeleted
         self.deletionDate = deletionDate
+        self.notificationTime = notificationTime
     }
 }
 

@@ -30,7 +30,8 @@ class GoalViewModel: ObservableObject {
         verificationMethod: Goal.VerificationMethod,
         currency: String,
         paymentIntentId: String? = nil,
-        selectedXDays: Int? = nil
+        selectedXDays: Int? = nil,
+        notificationTime: Date? = nil
     ) -> Goal? {
         // 1) Ensure we have an authenticated user
         guard let userId = Auth.auth().currentUser?.uid else {
@@ -60,7 +61,8 @@ class GoalViewModel: ObservableObject {
             verificationMethod: verificationMethod,
             currency: currency,
             paymentIntentId: paymentIntentId,
-            selectedXDays: selectedXDays
+            selectedXDays: selectedXDays,
+            notificationTime: notificationTime
         )
         
         // 4) Write the Goal to Firestore
@@ -150,6 +152,15 @@ class GoalViewModel: ObservableObject {
                     } else {
                         print("Completion doc updated to \(newStatus) for dayString=\(dayString).")
                         // Optionally call self?.fetchCompletions(for: goal) to refresh
+                        
+                        if let goalID = goal.id {
+                            // Assume dayString is a string like "yyyy-MM-dd" for that day.
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "yyyy-MM-dd"
+                            if let dayDate = formatter.date(from: dayString) {
+                                NotificationManager.shared.cancelNotification(for: goalID, on: dayDate)
+                            }
+                        }
                     }
                 }
             }
@@ -613,6 +624,71 @@ class GoalViewModel: ObservableObject {
             completion(result)
         }
     }
+    
+    
+    func refundAndDeleteAllActiveGoals(completion: @escaping (Result<Void, Error>) -> Void) {
+        let todayString = Date().toStringLocal(format: "yyyy-MM-dd")
+
+        // Filter goals that are:
+        //  - Not isDeleted
+        //  - Not manuallyRefunded
+        //  - Active (start <= today <= end)
+        //  - Not completed
+        let activeGoals = self.goals.filter { goal in
+            if goal.isDeleted ?? false { return false }
+            if goal.manuallyRefunded ?? false { return false }
+
+            let isActive = (goal.endDateLocalString >= todayString)
+            let completedCount = (self.completionsByGoal[goal.id ?? ""]?
+                .filter { $0.status == .verified || $0.status == .refunded }
+                .count) ?? 0
+            let isCompleted = completedCount >= goal.requiredCompletions
+            return isActive && !isCompleted
+        }
+
+        let group = DispatchGroup()
+        var lastError: Error?
+
+        for goal in activeGoals {
+            group.enter()
+            // 1) Refund the goal
+            self.triggerFullRefund(for: goal) { [weak self] refundResult in
+                switch refundResult {
+                case .success:
+                    // 2) Mark the goal as deleted
+                    self?.markGoalAsDeleted(goal) { deleteResult in
+                        switch deleteResult {
+                        case .success:
+                            print("Refunded & deleted goal \(goal.id ?? "nil")")
+                        case .failure(let error):
+                            print("Failed to delete goal \(goal.id ?? "nil"): \(error.localizedDescription)")
+                            lastError = error
+                        }
+                        group.leave()
+                    }
+                case .failure(let error):
+                    print("Failed to refund goal \(goal.id ?? "nil"): \(error.localizedDescription)")
+                    lastError = error
+                    group.leave()
+                }
+            }
+        }
+
+        // If no active goals, just succeed
+        if activeGoals.isEmpty {
+            completion(.success(()))
+            return
+        }
+
+        group.notify(queue: .main) {
+            if let error = lastError {
+                completion(.failure(error))
+            } else {
+                completion(.success(()))
+            }
+        }
+    }
+
     
     
     func markGoalAsManuallyRefunded(_ goal: Goal, completion: @escaping (Result<Void, Error>) -> Void) {
