@@ -13,7 +13,10 @@ struct ContentView: View {
     @State private var isShowingSignUp = false
 
     var body: some View {
-        Group {
+        // 1) Determine the user's chosen theme
+        let appColorScheme = mapThemeToColorScheme(userManager.userProfile?.themeMode ?? "system")
+
+        return Group {
             if userManager.isAuthenticated {
                 if userManager.isEmailVerified {
                     mainView
@@ -28,6 +31,9 @@ struct ContentView: View {
                 }
             }
         }
+        // 2) Apply the color scheme
+        .preferredColorScheme(appColorScheme)
+        // 3) The rest of your logic
         .onChange(of: userManager.isAuthenticated) { oldValue, newValue in
             if newValue {
                 DispatchQueue.main.async {
@@ -49,7 +55,6 @@ struct ContentView: View {
                 }
             }
         }
-        // The alert
         .alert("Payment Refunded", isPresented: $showRefundAlert) {
             Button("OK") { }
         } message: {
@@ -57,7 +62,20 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Refund Alert Message
+    // Helpers
+    
+    private func mapThemeToColorScheme(_ themeMode: String) -> ColorScheme? {
+        switch themeMode {
+        case "light":
+            return .light
+        case "dark":
+            return .dark
+        default:
+            // system or unknown => nil => use system setting
+            return nil
+        }
+    }
+    
     private var refundMessage: String {
         // Sum all amounts and convert to a float
         let totalCents = refundedPIs.reduce(0) { $0 + $1.amount }

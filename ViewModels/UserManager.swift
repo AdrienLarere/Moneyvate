@@ -374,14 +374,15 @@ class UserManager: NSObject, ObservableObject {
 
     func updateUserProfile(firstName: String?,
                            lastName: String?,
-                           currency: String)
-    {
+                           currency: String,
+                           theme: String) {
         guard let user = Auth.auth().currentUser else { return }
         let db = Firestore.firestore()
 
         // Build a dictionary of changed fields
         var updateData: [String: Any] = [
-            "currency": currency
+            "currency": currency,
+            "themeMode": theme
         ]
         if let fn = firstName { updateData["firstName"] = fn }
         if let ln = lastName { updateData["lastName"] = ln }
@@ -395,6 +396,7 @@ class UserManager: NSObject, ObservableObject {
                     up.currency = currency
                     up.firstName = firstName
                     up.lastName = lastName
+                    up.themeMode = theme
                     self?.userProfile = up  // reassign the updated copy
                 }
             }

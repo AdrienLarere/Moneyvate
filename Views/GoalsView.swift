@@ -3,6 +3,7 @@ import SwiftUI
 struct GoalsView: View {
     @EnvironmentObject var viewModel: GoalViewModel
     @EnvironmentObject var userManager: UserManager
+    @EnvironmentObject var subManager: SubscriptionManager
     
     @State private var showingAddGoal = false
     @State private var showDeletedGoals: Bool = false
@@ -25,6 +26,7 @@ struct GoalsView: View {
         NavigationView {
             
             VStack(spacing: 0) {
+                
                 if !(userManager.userProfile?.isAdmin ?? false) {
                     let maxGoals = 5
                     let progress = Double(totalActiveGoals) / Double(maxGoals)
@@ -33,10 +35,18 @@ struct GoalsView: View {
                         Text("Present + Future Goals: \(totalActiveGoals)/\(maxGoals)")
                             .font(.footnote)
 
-                        // This is the bar from 0..5
                         ProgressView(value: progress)
                             .progressViewStyle(LinearProgressViewStyle())
                             .padding(.horizontal, 16)
+
+                        // 1) If subManager is NOT subscribed => show “Upgrade” link
+                        if !subManager.isSubscribed {
+                            NavigationLink(destination: SubscriptionView().environmentObject(subManager)) {
+                                Text("Upgrade for Unlimited Goals")
+                                    .font(.footnote)
+                                    .foregroundColor(.blue)
+                            }
+                        }
                     }
                     .padding(.vertical, 8)
                     .background(Color(UIColor.systemGroupedBackground))
