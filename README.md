@@ -1,5 +1,5 @@
 
-![Moneyvate New Logo No BG](https://github.com/user-attachments/assets/a10fc97f-6c7e-4298-9d93-aa3135c2224a)
+<img width="115" alt="LOGO SMALL" src="https://github.com/user-attachments/assets/b583776f-3cde-42d3-af0e-c6cc18878787" />
 
 Moneyvate is the app that helps me with motivation through POSITIVE reinforcement!
 
