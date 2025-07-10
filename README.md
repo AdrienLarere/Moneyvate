@@ -1,3 +1,6 @@
+
+![Moneyvate New Logo No BG](https://github.com/user-attachments/assets/a10fc97f-6c7e-4298-9d93-aa3135c2224a)
+
 Moneyvate is the app that helps me with motivation through POSITIVE reinforcement!
 
 I used to use an app called Forfeit, where I created goals, and if I didn't accomplish them, I was charged money.
