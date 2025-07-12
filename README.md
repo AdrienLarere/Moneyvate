@@ -11,6 +11,8 @@ So I thought: maybe if I felt better about my goals, I wouldn't stop?
 
 And that's how the idea for Moneyvate was born: Even if it's your own money that's paying you to achieve a goal, it might motivate you in a more pleasant way.  
 
+<img width="1348" height="844" alt="Moneyvate screenshots" src="https://github.com/user-attachments/assets/8c29de82-4642-467d-a18c-1afe0671ea01" />
+
 At the end of the day, it's at least half a negative reinforcement lol! You pay a sum of money upfront, corresponding to  
 `[days to accomplish goal] X [daily payment for success]`  
 It IS *your* money that's coming back to you. Sure, you pay it at the beginning and then it just comes back if you succeed... but  if you fail, it's not coming back, and that's a loss...
